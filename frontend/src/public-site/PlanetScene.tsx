@@ -1,4 +1,4 @@
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+﻿import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { bakeMars } from "./marsBake";
@@ -83,10 +83,10 @@ void main(){ vNV = normalize(normalMatrix*normal); vNW = normalize(mat3(modelMat
 const photoFrag = /* glsl */ `
 uniform sampler2D uMap; uniform vec3 uSun; varying vec3 vNV; varying vec3 vNW;
 void main(){
-  vec2 uv = vec2(0.5) + normalize(vNV).xy * 0.485;
+  // the photograph carries its own day/night terminator, so it is shown as photographed
+  vec2 uv = vec2(0.5) + normalize(vNV).xy * 0.496;
   vec3 c = texture2D(uMap, uv).rgb;
-  float day = smoothstep(-0.3, 0.55, dot(normalize(vNW), normalize(uSun)));
-  gl_FragColor = vec4(c * (0.42 + 0.78 * day), 1.0);
+  gl_FragColor = vec4(c * 1.08, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }`;
@@ -103,11 +103,11 @@ function Planet() {
   const surface = useMemo<THREE.Material>(() => (maps
     ? new THREE.MeshStandardMaterial({ map: maps.color, bumpMap: maps.height, bumpScale: 9, roughness: 0.96, metalness: 0 })
     : new THREE.ShaderMaterial({ vertexShader: photoVert, fragmentShader: photoFrag,
-        uniforms: { uMap: { value: photo }, uSun: { value: new THREE.Vector3(-5, 1.6, 1.8) } } })), [maps, photo]);
+        uniforms: { uMap: { value: photo }, uSun: { value: new THREE.Vector3(5, 1.6, 1.8) } } })), [maps, photo]);
   const spin = useRef<THREE.Mesh>(null!);
   const group = useRef<THREE.Group>(null!);
   const clouds = useRef<THREE.Mesh>(null!);
-  const sun = useMemo(() => new THREE.Vector3(-5, 1.6, 1.8), []);
+  const sun = useMemo(() => new THREE.Vector3(5, 1.6, 1.8), []);
   const uniforms = useMemo(() => ({ uSun: { value: sun }, uTime: { value: 0 } }), [sun]);
   const target = useRef(new THREE.Vector3());
   // scroll choreography: per-section planet placement [x, y, scale]
@@ -216,7 +216,7 @@ export default function PlanetScene() {
     <Canvas camera={{ position: [0, 0, 6.2], fov: 42 }} dpr={[1, 1.75]} gl={{ antialias: true, powerPreference: "high-performance", toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 0.95 }}>
       <color attach="background" args={["#04060a"]} />
       <ambientLight intensity={0.035} />
-      <directionalLight position={[-5, 1.6, 1.8]} intensity={2.4} color="#fff4e8" />
+      <directionalLight position={[5, 1.6, 1.8]} intensity={2.4} color="#fff4e8" />
       <Stars />
       <Dust />
       <Planet />
