@@ -1,0 +1,146 @@
+/* ============================================================
+   ASTRA Controller Comparison Styles — Refined Aerospace Light System
+   Palette: Sage Grey #A5A79B, Warm Cream #E8D2B5, Deep Burgundy #590907
+   Base: #F5F4EF, Surface: #FFFDF8, Secondary: #ECEBE3
+   ============================================================ */
+
+.comp-root {
+  padding: 24px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  background: #F5F4EF;
+}
+
+.comp-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  border-bottom: 1px solid #DAD9D0;
+  padding-bottom: 16px;
+}
+
+.comp-eyebrow {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: #77796F;
+}
+
+.comp-title {
+  font-family: var(--font-display, serif);
+  font-size: 26px;
+  font-weight: 800;
+  color: #272922;
+  margin-top: 4px;
+}
+
+.badge-pill {
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  background: #ECEBE3;
+  border: 1px solid #DAD9D0;
+  padding: 4px 10px;
+  border-radius: 100px;
+  color: #57594F;
+}
+
+/* Controller Spec Cards */
+.comp-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.ctrl-card {
+  background: #FFFDF8;
+  border: 1px solid #DAD9D0;
+  border-radius: 8px;
+  padding: 18px 20px;
+  box-shadow: 0 1px 4px rgba(39, 41, 34, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+}
+
+.ctrl-card.ppo { border-top: 3px solid #590907; }
+.ctrl-card.mpc { border-top: 3px solid #BF802B; }
+.ctrl-card.pid { border-top: 3px solid #77796F; }
+
+.ctrl-badge {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 3px 8px;
+  border-radius: 100px;
+  width: fit-content;
+}
+
+.ctrl-badge.ppo { background: rgba(89, 9, 7, 0.08); color: #590907; }
+.ctrl-badge.mpc { background: rgba(191, 128, 43, 0.1); color: #BF802B; }
+.ctrl-badge.pid { background: rgba(119, 121, 111, 0.12); color: #77796F; }
+
+.ctrl-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: #272922;
+  margin-top: 2px;
+}
+
+.ctrl-desc {
+  font-size: 11.5px;
+  color: #57594F;
+  line-height: 1.45;
+}
+
+.ctrl-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #E6E4DB;
+  font-size: 11.5px;
+}
+
+.metric-row {
+  display: flex;
+  justify-content: space-between;
+  color: #57594F;
+}
+
+.metric-row strong {
+  font-family: var(--font-mono, monospace);
+  color: #272922;
+}
+
+/* Charts Grid */
+.comp-charts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.comp-chart-card {
+  background: #FFFDF8;
+  border: 1px solid #DAD9D0;
+  border-radius: 8px;
+  padding: 16px 20px;
+  box-shadow: 0 1px 4px rgba(39, 41, 34, 0.03);
+}
+
+.comp-chart-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #272922;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 900px) {
+  .comp-cards,
+  .comp-charts-grid {
+    grid-template-columns: 1fr;
+  }
+}
