@@ -14,10 +14,23 @@ alembic upgrade head
 uvicorn backend.api.main:app --host 0.0.0.0 --port 8000
 ```
 
+On Windows (PowerShell):
+```powershell
+python -m venv .venv; .venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+Copy-Item .env.example .env
+alembic upgrade head
+python -m uvicorn backend.api.main:app --reload --port 8000
+```
+
 ## Frontend
 ```bash
 cd frontend && npm install
 npm run dev                     # http://localhost:5173  (landing at /, application at /app)
+```
+Or run directly from the repository root:
+```bash
+npm run dev:web
 ```
 The UI talks to `http://<host>:8000` by default; change it in **Settings** or with `VITE_API_BASE`.
 
