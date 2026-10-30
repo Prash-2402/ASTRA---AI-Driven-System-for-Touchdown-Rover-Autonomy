@@ -97,7 +97,7 @@ export default function MoonScene({ snap, scene, cam, labels, showPlan }: { snap
   return (
     <Canvas shadows dpr={[1, 1.75]} camera={{ fov: 50, near: 0.5, far: 12000, position: [-4500, 2300, 400] }} gl={{ antialias: true }}>
       <color attach="background" args={["#000000"]} />
-      <Stars />
+      <Stars count={450} radius={3500} size={1.6} opacity={0.6} />
       <Earth />
       <ambientLight intensity={0.035} />
       <hemisphereLight args={["#9bb4d8", "#1a1a1a", 0.06]} />

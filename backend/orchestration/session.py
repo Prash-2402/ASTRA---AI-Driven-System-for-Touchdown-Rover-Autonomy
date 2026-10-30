@@ -33,11 +33,14 @@ class SimulationSession:
         self.db_run_id: int | None = None
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
+        self.overrides: dict[str, Callable[[object], None]] = {}   # live settings re-applied to every new mission
         self._new_mission()
 
     def _new_mission(self):
         self.run_uid = f"{self.module}-{uuid.uuid4().hex[:10]}"
         self.mission = self.factory()
+        for apply in self.overrides.values():
+            apply(self.mission)
         self._events_sent = 0
         self._wall = 0.0
 

@@ -17,6 +17,7 @@ class SpeedRequest(BaseModel):
 class TouchdownConfigRequest(BaseModel):
     seed: int = 42
     controller: Literal["pid", "mpc", "ppo"] = "pid"
+    environment: Literal["mars", "moon"] = "mars"
     initial_position: list[float] = Field(default=[-650.0, 320.0, 2900.0], min_length=3, max_length=3)
     initial_velocity: list[float] = Field(default=[32.0, -14.0, -62.0], min_length=3, max_length=3)
     target: list[float] = Field(default=[0.0, 0.0], min_length=2, max_length=2)
@@ -33,6 +34,25 @@ class HazardInjection(BaseModel):
     x: float | None = None
     y: float | None = None
     radius: float = Field(25.0, gt=0, le=150)
+
+
+class LanderEnvironment(BaseModel):
+    wind_speed: float | None = Field(None, ge=0, le=40)
+    wind_dir_deg: float | None = Field(None, ge=-360, le=360)
+    gust_std: float | None = Field(None, ge=0, le=10)
+    dust: float | None = Field(None, ge=0, le=1)
+
+
+class RoverEnvironment(BaseModel):
+    sandstorm: float | None = Field(None, ge=0, le=1, description="dust optical-depth proxy, 0 clear .. 1 severe")
+    wind_speed: float | None = Field(None, ge=0, le=40)
+    comms: bool | None = None
+
+
+class RoverObstacle(BaseModel):
+    x: float = Field(..., ge=-29, le=29)
+    y: float = Field(..., ge=-29, le=29)
+    radius: float = Field(0.6, ge=0.2, le=1.5)
 
 
 class DisturbanceInjection(BaseModel):
@@ -65,6 +85,9 @@ class RoverConfigRequest(BaseModel):
     max_speed: float | None = Field(None, gt=0.05, le=2.0)
     duration: float | None = Field(None, gt=10, le=3600)
     faults: list[dict[str, Any]] = Field(default_factory=list)
+    ground_ops: bool = False
+    tasks: list[dict[str, Any]] = Field(default_factory=list)
+    task_kinds: list[Literal["collect_sand", "collect_sample", "capture_image"]] = Field(default_factory=list)
 
 
 class FaultInjectRequest(BaseModel):

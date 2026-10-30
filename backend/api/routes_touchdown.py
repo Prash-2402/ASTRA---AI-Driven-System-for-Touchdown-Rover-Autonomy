@@ -11,8 +11,8 @@ from fastapi import APIRouter, HTTPException
 from backend.core.config import ROOT
 from backend.orchestration.session import manager
 from machine_learning.training.checkpoints import CheckpointManager
-from shared.schemas.api import (DisturbanceInjection, HazardInjection, SensorFaultInjection, SpeedRequest,
-                                StartRequest, TouchdownConfigRequest, TrainingRequest)
+from shared.schemas.api import (DisturbanceInjection, HazardInjection, LanderEnvironment, SensorFaultInjection,
+                                SpeedRequest, StartRequest, TouchdownConfigRequest, TrainingRequest)
 from simulation.touchdown.mission import TouchdownConfig, TouchdownMission
 
 router = APIRouter(prefix="/api/touchdown", tags=["touchdown"])
@@ -118,6 +118,16 @@ def inject_hazard(req: HazardInjection):
     s = _session()
     with s.lock:
         return s.mission.inject_hazard(req.x, req.y, req.radius)
+
+
+@router.post("/environment")
+def set_environment(req: LanderEnvironment):
+    s = _session()
+    with s.lock:
+        merged = {**(s.config.get("_environment") or {}), **{k: v for k, v in req.model_dump().items() if v is not None}}
+        s.config["_environment"] = merged
+        s.overrides["environment"] = lambda m: m.set_environment(**merged)
+        return s.mission.set_environment(**merged)
 
 
 @router.post("/inject/disturbance")

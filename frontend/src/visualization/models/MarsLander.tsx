@@ -9,8 +9,8 @@ import RoverModel from "./RoverModel";
  *  four legs (footpad circle 2.2 m), landing radar and a gimballed hazard-detection lidar,
  *  two folded decagonal solar arrays, and the stowed rover payload on the deck.
  *  Local frame: +y = body thrust axis (up), +x = body x. 1 unit = 1 m. */
-export default function MarsLander({ throttle, lateral, torque, labels = false, lidarScanning = false }:
-  { throttle: number; lateral: number[]; torque: number[]; labels?: boolean; lidarScanning?: boolean }) {
+export default function MarsLander({ throttle, lateral, torque, labels = false, lidarScanning = false, landed = false }:
+  { throttle: number; lateral: number[]; torque: number[]; labels?: boolean; lidarScanning?: boolean; landed?: boolean }) {
   const silver = useMemo(() => { const f = foil("silver"); return new THREE.MeshStandardMaterial({ map: f.map, normalMap: f.normal, roughness: 0.3, metalness: 0.85 }); }, []);
   const gold = useMemo(() => { const f = foil("gold"); return new THREE.MeshStandardMaterial({ map: f.map, normalMap: f.normal, roughness: 0.35, metalness: 0.75 }); }, []);
   const pv = useMemo(() => new THREE.MeshStandardMaterial({ map: solarCells(10, 3), roughness: 0.25, metalness: 0.4, side: THREE.DoubleSide }), []);
@@ -57,10 +57,10 @@ export default function MarsLander({ throttle, lateral, torque, labels = false, 
         <group key={s} position={[0, 1.58, s * 0.62]} rotation={[s * 0.12, 0, 0]}>
           <mesh material={pv} castShadow><cylinderGeometry args={[0.55, 0.55, 0.03, 10]} /></mesh>
         </group>))}
-      {/* stowed rover payload (scaled) */}
-      <group position={[0, 1.83, 0]} scale={0.55} rotation={[0, Math.PI / 2, 0]}>
+      {/* stowed rover payload (scaled) - gone once the rover has deployed onto the surface */}
+      {!landed && <group position={[0, 1.83, 0]} scale={0.55} rotation={[0, Math.PI / 2, 0]}>
         <RoverModel pose={{ rockerL: 0, rockerR: 0, bogieL: 0, bogieR: 0 }} wheelSpeeds={[0, 0, 0, 0, 0, 0]} />
-      </group>
+      </group>}
       {/* landing radar (6 antennas) and hazard-detection lidar */}
       {[0, 1, 2, 3, 4, 5].map((i) => { const a = (i / 6) * Math.PI * 2; return (
         <mesh key={i} position={[Math.cos(a) * 0.6, 0.78, Math.sin(a) * 0.6]} material={MAT.offwhite}><cylinderGeometry args={[0.09, 0.09, 0.03, 16]} /></mesh>); })}

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { regolith } from "./textures";
 
-export type CamMode = "chase" | "observer" | "overhead" | "cinematic" | "free" | "window" | "orbiter";
+export type CamMode = "chase" | "observer" | "overhead" | "cinematic" | "free" | "window" | "orbiter" | "front" | "frontWide";
 
 /** Camera rig: each non-free mode defines a desired eye/look-at pair from the subject's pose; the camera eases
  *  toward it every frame (smooth transitions). 'free' hands control to OrbitControls around the subject. */
@@ -15,12 +15,18 @@ export function CameraRig({ mode, subject, heading = 0, observer, overheadHeight
   const look = useRef(new THREE.Vector3());
   const eye = new THREE.Vector3();
   const first = useRef(true);
+  const hdg = useRef(heading);
   useFrame(({ clock }, dt) => {
     const s = subject();
     if (mode === "free") { if (controls.current) { controls.current.target.lerp(s, Math.min(1, dt * 3)); controls.current.update(); } return; }
-    const fwd = new THREE.Vector3(Math.cos(heading), 0, -Math.sin(heading));
+    // heading is eased so the front-facing views never swing abruptly when the velocity direction changes
+    const dh = Math.atan2(Math.sin(heading - hdg.current), Math.cos(heading - hdg.current));
+    hdg.current += dh * Math.min(1, dt * 0.9);
+    const fwd = new THREE.Vector3(Math.cos(hdg.current), 0, -Math.sin(hdg.current));
     let target = s.clone();
-    if (mode === "chase") { eye.copy(s).addScaledVector(fwd, -chaseDist).add(new THREE.Vector3(0, chaseHeight, 0)); target = s.clone().addScaledVector(fwd, lookAhead); }
+    if (mode === "front") { eye.copy(s).addScaledVector(fwd, chaseDist).add(new THREE.Vector3(0, chaseHeight * 0.7, 0)); target = s.clone().add(new THREE.Vector3(0, -chaseHeight * 0.25, 0)); }
+    else if (mode === "frontWide") { eye.copy(s).addScaledVector(fwd, chaseDist * 4.5).add(new THREE.Vector3(0, chaseHeight * 2.2, 0)); target = s.clone().add(new THREE.Vector3(0, -chaseHeight * 1.5, 0)); }
+    else if (mode === "chase") { eye.copy(s).addScaledVector(fwd, -chaseDist).add(new THREE.Vector3(0, chaseHeight, 0)); target = s.clone().addScaledVector(fwd, lookAhead); }
     else if (mode === "observer") { eye.copy(observer ?? s.clone().add(new THREE.Vector3(30, 5, 30))); }
     else if (mode === "overhead") { eye.copy(s).add(new THREE.Vector3(0.01, overheadHeight, 0.01)); }
     else if (mode === "cinematic") { const a = clock.elapsedTime * 0.12; eye.copy(s).add(new THREE.Vector3(Math.cos(a) * chaseDist * 1.6, chaseHeight * 1.4, Math.sin(a) * chaseDist * 1.6)); }
@@ -99,13 +105,16 @@ export function SkyDome({ horizon, zenith, sunDir, sunColor = "#fff2dc", radius 
 }
 
 /** Starfield for airless bodies. */
-export function Stars({ count = 3000, radius = 3500 }) {
+/** Starfield for airless bodies. In a sunlit surface scene the eye (and camera) adapts to the bright ground,
+ *  so only a sparse set of the brightest stars stays visible, at varied, mostly faint magnitudes. */
+export function Stars({ count = 3000, radius = 3500, size = 2.2, opacity = 0.85 }) {
   const geom = useMemo(() => {
-    const g = new THREE.BufferGeometry(); const pos = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) { const th = Math.random() * Math.PI * 2, ph = Math.acos(Math.random()); pos.set([radius * Math.sin(ph) * Math.cos(th), radius * Math.cos(ph), radius * Math.sin(ph) * Math.sin(th)], i * 3); }
-    g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); return g;
+    const g = new THREE.BufferGeometry(); const pos = new Float32Array(count * 3); const col = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) { const th = Math.random() * Math.PI * 2, ph = Math.acos(Math.random()); pos.set([radius * Math.sin(ph) * Math.cos(th), radius * Math.cos(ph), radius * Math.sin(ph) * Math.sin(th)], i * 3);
+      const m = Math.pow(Math.random(), 2.4); col.set([m, m, m * 0.97 + 0.03], i * 3); }
+    g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.BufferAttribute(col, 3)); return g;
   }, [count, radius]);
-  return <points geometry={geom} frustumCulled={false}><pointsMaterial size={2.2} sizeAttenuation={false} color="#ffffff" transparent opacity={0.85} fog={false} /></points>;
+  return <points geometry={geom} frustumCulled={false}><pointsMaterial size={size} sizeAttenuation={false} vertexColors transparent opacity={opacity} fog={false} /></points>;
 }
 
 /** Ballistic particle system. emit(n, origin) is driven by the physics-reported dust rate. With drag=0 (Moon)

@@ -92,6 +92,19 @@ class RoverWorld:
     def step(self) -> None:
         p.stepSimulation(physicsClientId=self.cid)
 
+    def add_rock(self, x: float, y: float, r: float, h: float) -> int:
+        col = p.createCollisionShape(p.GEOM_SPHERE, radius=r, physicsClientId=self.cid)
+        b = p.createMultiBody(0, col, basePosition=[x, y, self.terrain.height(x, y) + h - r], physicsClientId=self.cid)
+        self.rocks.append(b)
+        self.rock_height[b] = h
+        self.rock_set.add(b)
+        return b
+
+    def apply_wind(self, force_n: float, direction=(1.0, 0.3)) -> None:
+        d = np.asarray(direction, float) / np.hypot(*direction)
+        pos, _ = p.getBasePositionAndOrientation(self.rover, physicsClientId=self.cid)
+        p.applyExternalForce(self.rover, -1, [force_n * d[0], force_n * d[1], 0.0], pos, p.WORLD_FRAME, physicsClientId=self.cid)
+
     # -- ground truth queries (simulator / evaluator / sensor synthesis only) --
     def base_state(self):
         pos, orn = p.getBasePositionAndOrientation(self.rover, physicsClientId=self.cid)

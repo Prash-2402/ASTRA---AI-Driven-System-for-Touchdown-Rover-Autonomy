@@ -5,8 +5,7 @@ import { useSim } from "../stores/simulation";
 
 const NAV: { group: string; items: [string, string, string][] }[] = [
   { group: "Mission", items: [["Dashboard", "/app", "◎"]] },
-  { group: "Simulations", items: [["Rover Movement Simulation", "/app/rover", "⬡"], ["Moon Landing Simulation", "/app/moon", "☾"],
-    ["Touchdown Simulation", "/app/touchdown", "▾"]] },
+  { group: "Simulations", items: [["Landing Simulation", "/app/landing", "▾"], ["Rover Ground Operations", "/app/rover", "⬡"]] },
   { group: "Operations", items: [["Mission Control", "/app/mission-control", "◉"], ["Scenario Builder", "/app/scenarios", "✎"],
     ["Fault Injection", "/app/faults", "⚡"]] },
   { group: "Research", items: [["Controller Comparison", "/app/comparison", "⇄"], ["Reinforcement Learning Lab", "/app/rl-lab", "∿"],

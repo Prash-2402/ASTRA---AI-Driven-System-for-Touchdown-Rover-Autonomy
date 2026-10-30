@@ -5,9 +5,8 @@ import AppShell from "./layouts/AppShell";
 const Landing = lazy(() => import("./public-site/Landing"));
 const Overview = lazy(() => import("./application/pages/Overview"));
 const MissionControl = lazy(() => import("./application/pages/MissionControl"));
-const Touchdown = lazy(() => import("./modules/touchdown/TouchdownPage"));
+const LandingSim = lazy(() => import("./modules/landing/LandingSimPage"));
 const Rover = lazy(() => import("./modules/rover/RoverPage"));
-const Moon = lazy(() => import("./modules/moon/MoonPage"));
 const ScenarioBuilder = lazy(() => import("./application/pages/ScenarioBuilder"));
 const FaultInjection = lazy(() => import("./application/pages/FaultInjection"));
 const ControllerComparison = lazy(() => import("./application/pages/ControllerComparison"));
@@ -26,9 +25,10 @@ export default function App() {
         <Route path="/app" element={<AppShell />}>
           <Route index element={<Overview />} />
           <Route path="mission-control" element={<MissionControl />} />
-          <Route path="touchdown" element={<Touchdown />} />
+          <Route path="landing" element={<LandingSim />} />
+          <Route path="touchdown" element={<Navigate to="/app/landing?env=mars" replace />} />
+          <Route path="moon" element={<Navigate to="/app/landing?env=moon&type=apollo" replace />} />
           <Route path="rover" element={<Rover />} />
-          <Route path="moon" element={<Moon />} />
           <Route path="scenarios" element={<ScenarioBuilder />} />
           <Route path="faults" element={<FaultInjection />} />
           <Route path="comparison" element={<ControllerComparison />} />

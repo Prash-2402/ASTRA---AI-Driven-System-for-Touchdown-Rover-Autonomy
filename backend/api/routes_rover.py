@@ -4,7 +4,8 @@ from fastapi import APIRouter, HTTPException
 
 from backend.orchestration.session import manager
 from shared.enums import FaultType
-from shared.schemas.api import FaultInjectRequest, RoverConfigRequest, SpeedRequest, StartRequest
+from shared.schemas.api import (FaultInjectRequest, RoverConfigRequest, RoverEnvironment, RoverObstacle, SpeedRequest,
+                                StartRequest)
 from simulation.rover.faults import DEFAULT_PARAMS
 from simulation.rover.mission import RoverConfig, RoverMission
 from simulation.rover.terrain import VARIANTS, generate
@@ -15,7 +16,8 @@ router = APIRouter(prefix="/api/rover", tags=["rover"])
 def _cfg_dict(req: RoverConfigRequest) -> dict:
     d = req.model_dump()
     out = {"seed": d["seed"], "terrain": d["terrain"], "controller": d["controller"], "start": d["start"],
-           "target": d["target"], "rover_mass": d["rover_mass"], "faults": d["faults"]}
+           "target": d["target"], "rover_mass": d["rover_mass"], "faults": d["faults"],
+           "ground_ops": d["ground_ops"], "tasks": d["tasks"], "task_kinds": d["task_kinds"]}
     for k_req, k_cfg in (("initial_battery", "initial_battery"), ("wheel_torque", "wheel_torque"),
                          ("max_speed", "max_speed"), ("duration", "duration")):
         if d[k_req] is not None:
@@ -134,6 +136,26 @@ def inject(req: FaultInjectRequest):
     s = _session()
     with s.lock:
         return s.mission.inject_fault(req.fault_type, req.duration, req.params)
+
+
+@router.post("/environment")
+def set_environment(req: RoverEnvironment):
+    s = _session()
+    with s.lock:
+        merged = {**(s.config.get("_environment") or {}), **{k: v for k, v in req.model_dump().items() if v is not None}}
+        s.config["_environment"] = merged
+        s.overrides["environment"] = lambda m: m.set_environment(**merged)
+        return s.mission.set_environment(**merged)
+
+
+@router.post("/obstacle")
+def add_obstacle(req: RoverObstacle):
+    s = _session()
+    with s.lock:
+        try:
+            return s.mission.add_obstacle(req.x, req.y, req.radius)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
 
 
 @router.get("/decisions")

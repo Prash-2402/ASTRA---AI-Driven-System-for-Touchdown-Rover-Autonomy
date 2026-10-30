@@ -1,8 +1,9 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Series } from "../../charts/Series";
 import SimControls from "../../components/SimControls";
-import { CamSwitch, Gauge, PhaseTimeline, Toggle } from "../../components/SimViewport";
-import { DecisionLog, Empty, ErrorNote, EventTimeline, Field, fmt, PageHeader, Panel, Stat } from "../../components/ui";
+import { CamSwitch, Gauge, PhaseTimeline } from "../../components/SimViewport";
+import { DecisionLog, Empty, ErrorNote, EventTimeline, Field, fmt, Panel, Stat } from "../../components/ui";
+import type { LandingFeatures } from "../landing/LandingSimPage";
 import { usePoll } from "../../hooks/useChannel";
 import { api } from "../../services/api";
 import { useSim } from "../../stores/simulation";
@@ -19,14 +20,13 @@ const EXPLAIN: Record<string, string> = {
   FAILED: "At least one touchdown limit was violated — see the debrief for which one.",
 };
 
-export default function MoonPage() {
+export default function MoonPage({ features }: { features: LandingFeatures }) {
   const live = useSim((s) => s.moon);
   const hist = useSim((s) => s.moonHistory);
   const ingest = useSim((s) => s.ingest);
   const [scene, setScene] = useState<any>(null);
-  const [cam, setCam] = useState<CamMode>("chase");
-  const [labels, setLabels] = useState(false);
-  const [plan, setPlan] = useState(true);
+  const [cam, setCam] = useState<CamMode>("front");
+  const labels = features.labels, plan = features.paths;
   const [err, setErr] = useState<string | null>(null);
   const [cfg, setCfg] = useState({ seed: 11, high_gate_altitude: 2000, high_gate_downrange: 4200, crossrange_offset: 60, terminal_descent_rate: 1.0, propellant: 1900 });
   const decisions = usePoll(() => api.get("/api/moon/decisions"), 3000, [live?.run_uid]);
@@ -40,9 +40,8 @@ export default function MoonPage() {
   const failed = live?.phase === "FAILED";
   return (
     <div>
-      <PageHeader eyebrow="Independent lunar simulation · g = 1.625 m/s² · no atmosphere" title={<>Moon <em>Landing</em> Simulation</>}>
-        <SimControls module="moon" status={live?.status} speed={live?.speed} />
-      </PageHeader>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4"><SimControls module="moon" status={live?.status} speed={live?.speed} />
+        <span className="text-[11.5px] text-muted">Independent lunar simulation · g = 1.625 m/s² · no atmosphere</span></div>
       <ErrorNote error={err || (live as any)?.error} />
       <div className="panel px-5 py-3.5 mb-5"><PhaseTimeline phases={failed ? [...PHASES.slice(0, 4), "FAILED"] : PHASES} current={live?.phase} failed={failed} /></div>
       <div className="grid xl:grid-cols-[1fr_340px] gap-5">
@@ -51,8 +50,7 @@ export default function MoonPage() {
             {scene && live ? <Suspense fallback={<div className="p-6 eyebrow">Loading lunar terrain…</div>}><MoonScene snap={live} scene={scene} cam={cam} labels={labels} showPlan={plan} /></Suspense>
               : <div className="h-full grid place-items-center eyebrow">Loading lunar terrain…</div>}
             <div className="absolute top-3 left-3 right-3 flex flex-wrap justify-between gap-2">
-              <CamSwitch value={cam} onChange={setCam} modes={[["chase", "Chase"], ["window", "Commander's window"], ["observer", "Surface observer"], ["overhead", "Overhead"], ["cinematic", "Orbit"], ["free", "Free"]]} />
-              <div className="flex gap-2"><Toggle on={labels} onClick={() => setLabels(!labels)}>Components</Toggle><Toggle on={plan} onClick={() => setPlan(!plan)}>Guidance path</Toggle></div>
+              <CamSwitch value={cam} onChange={setCam} modes={[["front", "Front view"], ["frontWide", "Front · wide"], ["free", "Free view"]]} />
             </div>
             {f && <div className="absolute bottom-3 left-3 hud p-3 w-[250px] space-y-2.5">
               <Gauge label="Altitude AGL" value={f.truth.agl} max={2000} unit="m" fmt={(v) => v.toFixed(v < 100 ? 1 : 0)} tone="var(--info)" />
@@ -68,7 +66,7 @@ export default function MoonPage() {
             {live?.phase && <div className="absolute bottom-3 right-3 hud p-3 max-w-[340px] text-[12px] leading-relaxed text-[var(--ink-secondary)] hidden md:block">
               <div className="eyebrow !text-[9.5px] mb-1 text-[var(--primary)]">What is happening · {live.phase}</div>{EXPLAIN[live.phase]}</div>}
           </div>
-          {hist.length > 1 ? <div className="grid md:grid-cols-2 gap-5">
+          {!features.telemetry ? null : hist.length > 1 ? <div className="grid md:grid-cols-2 gap-5">
             <Panel eyebrow="Trajectory" title="Altitude & descent rate"><Series data={hist} lines={[{ key: "agl", name: "AGL [m]" }]} height={140} /><Series data={hist} lines={[{ key: "vz", name: "vertical speed [m/s]", color: "#1C7ED6" }, { key: "vx", name: "downrange speed [m/s]", color: "#F08C00" }]} height={140} /></Panel>
             <Panel eyebrow="Propulsion" title="Throttle, pitch & propellant"><Series data={hist} lines={[{ key: "throttle", name: "throttle [0-1]", color: "#F08C00" }]} height={140} /><Series data={hist} lines={[{ key: "pitch", name: "pitch [deg]", color: "#7950F2" }]} height={140} /></Panel>
             <Panel eyebrow="Plume-surface interaction" title="Regolith erosion rate"><Series data={hist} lines={[{ key: "dust", name: "dust [kg/s]", color: "#1F2937" }]} /></Panel>

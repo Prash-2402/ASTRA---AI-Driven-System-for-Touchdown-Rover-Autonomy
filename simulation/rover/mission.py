@@ -53,6 +53,9 @@ class RoverConfig:
     arrival_radius: float = 0.6
     success_radius: float = 1.5
     faults: list = field(default_factory=list)
+    ground_ops: bool = False           # autonomous surface operations: task list + return to lander
+    tasks: list = field(default_factory=list)
+    task_kinds: list = field(default_factory=list)   # subset of default task kinds (empty = all)
     sensors: RoverSensorConfig = field(default_factory=RoverSensorConfig)
     safety: SafetyConfig = field(default_factory=SafetyConfig)
     detector: DetectorConfig = field(default_factory=DetectorConfig)
@@ -78,6 +81,9 @@ class RoverConfig:
 class RoverMission:
     def __init__(self, cfg: RoverConfig):
         self.cfg = cfg
+        if cfg.ground_ops or cfg.tasks:
+            # a whole sol of surface work is budgeted, not the 20 Wh slice of a single benchmark traverse
+            cfg.battery_capacity_wh = max(cfg.battery_capacity_wh, 60.0)
         self.seeds = SeedManager(cfg.seed)
         self.terrain = generate(cfg.terrain)
         if cfg.start: self.terrain.start = tuple(cfg.start)
@@ -155,7 +161,18 @@ class RoverMission:
         self.wall_time = 0.0
         self.policy_state = "NOMINAL"
         self.safety = self.supervisor.last
+        sc = cfg.sensors
+        self._sensor_base = (sc.lidar_noise, sc.lidar_range, sc.camera_confusion, sc.camera_range, sc.visloc_noise_xy, sc.dropout_prob)
+        self.env = {"sandstorm": 0.0, "wind_speed": 4.0 if (cfg.ground_ops or cfg.tasks) else 0.0, "comms": True}
+        self.added_obstacles: list[list[float]] = []
+        self.ops = None
         self._event("phase", f"Rover mission start on terrain {cfg.terrain} ({self.terrain.name}) with {cfg.controller.upper()}")
+        if cfg.ground_ops or cfg.tasks:
+            from simulation.rover.ground_ops import GroundOps
+            cfg.duration = max(cfg.duration, 1800.0)
+            self.ops = GroundOps(self, cfg.tasks, cfg.task_kinds)
+            self._event("phase", "Surface operations: deployed beside the lander; tasks: "
+                        + ", ".join(t["label"] for t in self.ops.tasks))
         self._plan("initial path")
 
     # ------------------------------------------------------------------
@@ -248,6 +265,9 @@ class RoverMission:
         speeds, _ = self.world.wheel_states()
         cls = [self.terrain.class_at(*wp[:2]) for wp in self._wheel_pos] if hasattr(self, "_wheel_pos") else [0] * 6
         self.world.apply_rolling_resistance(np.array([CLASS_ROLLING_RESISTANCE[c] for c in cls]), self.normals, speeds)
+        if self.env["wind_speed"] > 0:
+            # aerodynamic drag of the Martian wind on the vehicle (rho ~0.02 kg/m^3: small even in storms)
+            self.world.apply_wind(0.5 * 0.020 * 1.1 * 0.9 * self.env["wind_speed"] ** 2)
         self.world.step()
         speeds, torques = self.world.wheel_states()
         self.battery.step(torques, speeds, self.dt)
@@ -393,8 +413,13 @@ class RoverMission:
             self.audit.resolve(eid, outcome)
             self._event("recovery", f"Recovery {'verified' if outcome['recovered'] else 'NOT verified'}: "
                                     f"{outcome['progress_m']} m progress in {outcome['window_s']} s")
-        # ---- arrival ----
-        if self._dist_goal_est() < c.arrival_radius:
+        # ---- arrival / surface-operations layer ----
+        if self.ops is not None:
+            if self.ops.update(soc, est) or self.terminal:
+                self.wheel_cmd = np.zeros(6)
+                self.world.set_wheels(np.zeros(6), np.full(6, c.wheel_torque))
+                return
+        elif self._dist_goal_est() < c.arrival_radius:
             self.world.set_wheels(np.zeros(6), np.full(6, c.wheel_torque))
             self._finish("arrived")
             return
@@ -471,6 +496,8 @@ class RoverMission:
         pos, _, _, _ = self.world.base_state()
         dist = float(np.hypot(*(pos[:2] - self.goal)))
         reached = outcome == "arrived" and dist <= self.cfg.success_radius
+        if self.ops is not None:
+            reached = outcome == "mission_complete" and dist <= self.cfg.success_radius
         safe = self.collisions == 0 and not any(v["type"] in ("tilt", "battery") for v in self.violations)
         injected = sorted({f["fault_type"] for f in self.fault_log if f["phase"] == "injected"})
         cls_correct = [self.first_class[f]["correct"] for f in injected if f in self.first_class]
@@ -494,6 +521,8 @@ class RoverMission:
             "position_sigma_mean_m": float(np.mean(self.sig_hist)) if self.sig_hist else None,
             "fsm_transitions": self.fsm.transitions if self.cfg.controller == "fsm" else None,
         }
+        if self.ops is not None:
+            self.result["ground_ops"] = self.ops.summary()
         self._event("phase", f"Mission end: {outcome} (success={self.result['success']}, {dist:.2f} m from target)")
 
     # ------------------------------------------------------------------
@@ -541,10 +570,48 @@ class RoverMission:
                 s["lidar"] = np.round(np.c_[x[0] + c * P[:, 0] - sn * P[:, 1], x[1] + sn * P[:, 0] + c * P[:, 1], x[2] + P[:, 2]], 2).tolist()
             s["perceived"] = {"obstacles": np.argwhere(self.map.obstacle).tolist(),
                               "untraversable": np.argwhere(self.map.cam_trav == 0).tolist()}
+        s["environment"] = dict(self.env)
+        s["added_obstacles"] = self.added_obstacles
+        if self.ops is not None:
+            s["ops"] = self.ops.snapshot()
         return s
 
     def scene(self) -> dict:
         return {"terrain": self.terrain.visual(step=2), "summary": self.terrain.summary()}
+
+    def set_environment(self, sandstorm: float | None = None, wind_speed: float | None = None,
+                        comms: bool | None = None) -> dict:
+        """Surface conditions (TRUE world). A dust storm degrades lidar, cameras and visual localisation;
+        wind pushes on the vehicle; comms loss only removes the ground link. The rover is not told any of
+        this - it infers the storm from its own navcam optical-depth measurement."""
+        if sandstorm is not None: self.env["sandstorm"] = float(np.clip(sandstorm, 0.0, 1.0))
+        if wind_speed is not None: self.env["wind_speed"] = float(wind_speed)
+        if comms is not None: self.env["comms"] = bool(comms)
+        s = self.env["sandstorm"]
+        ln, lr, cc, cr, vn, dp = self._sensor_base
+        sc = self.sensors.cfg
+        sc.lidar_noise, sc.lidar_range = ln * (1 + 1.5 * s), lr * (1 - 0.4 * s)
+        sc.camera_confusion, sc.camera_range = cc + 0.22 * s, cr * (1 - 0.5 * s)
+        sc.visloc_noise_xy, sc.dropout_prob = vn * (1 + 3 * s), dp + 0.35 * s
+        self._event("environment", f"Surface conditions: dust storm {s:.2f}, wind {self.env['wind_speed']:.0f} m/s, "
+                                   f"comms {'up' if self.env['comms'] else 'LOST'}")
+        return dict(self.env)
+
+    def add_obstacle(self, x: float, y: float, radius: float = 0.6) -> dict:
+        pos, _, _, _ = self.world.base_state()
+        if np.hypot(x - pos[0], y - pos[1]) < radius + 1.2:
+            raise ValueError("too close to the rover")
+        if self.ops is not None and np.hypot(*(np.array([x, y]) - self.ops.lander)) < radius + 2.6:
+            raise ValueError("too close to the lander")
+        h = radius * 1.2
+        self.world.add_rock(x, y, radius, h)
+        self.terrain.obstacles.append((float(x), float(y), float(radius), float(h)))
+        self.terrain._rock_cells = None
+        self.added_obstacles.append([float(x), float(y), float(radius), float(h)])
+        on_route = any(np.hypot(px - x, py - y) < radius + 1.0 for px, py in self.path.get("path", []))
+        self._event("injection", f"Obstacle placed at ({x:.1f}, {y:.1f}) r={radius:.1f} m"
+                                 + (" ON the planned route — the rover must perceive it and re-plan" if on_route else ""))
+        return {"x": x, "y": y, "radius": radius, "height": h, "on_route": on_route}
 
     def inject_fault(self, fault_type: str, duration: float | None, params: dict) -> dict:
         s = self.injector.inject_now(self.t, fault_type, duration, params)

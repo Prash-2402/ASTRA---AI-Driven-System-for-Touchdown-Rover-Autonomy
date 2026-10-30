@@ -167,7 +167,7 @@ export default function Landing() {
           <p className="reveal mt-6 text-white/70" style={d(200)}>Configure a descent, inject a boulder field, break a wheel — and read why the system did what it did.</p>
           <div className="reveal mt-10 flex flex-wrap justify-center gap-3" style={d(300)}>
             <Link to="/app/mission-control" className="rounded-full bg-[#dfeedd] text-[#16241b] px-7 py-3 text-sm font-medium hover:bg-white transition">Enter Mission Control</Link>
-            <Link to="/app/moon" className="rounded-full glass px-7 py-3 text-sm hover:bg-white/10 transition">Watch a Moon landing</Link>
+            <Link to="/app/landing?env=moon&type=apollo" className="rounded-full glass px-7 py-3 text-sm hover:bg-white/10 transition">Watch a Moon landing</Link>
           </div>
         </Section>
 

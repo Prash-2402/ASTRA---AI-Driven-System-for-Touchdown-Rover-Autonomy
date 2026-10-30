@@ -24,9 +24,9 @@ export default function Overview() {
   const events = useSim((s) => s.events);
   const sess = data?.sessions || {};
   const sims: [string, string, string, string][] = [
-    ["rover", "Rover Movement", "Sky-crane landing on a crater floor, then a PyBullet rocker-bogie traverse with injected faults.", "/app/rover"],
-    ["moon", "Moon Landing", "Lunar Module approach and P66 terminal descent in 1.625 m/s² gravity, with ballistic regolith dust.", "/app/moon"],
-    ["touchdown", "Touchdown", "Mars powered descent with EKF, PID / MPC guidance, lidar hazard mapping and autonomous diversion.", "/app/touchdown"],
+    ["touchdown", "Landing · Mars & Moon", "Autonomous powered descent: lidar scans the pad and surroundings, detects obstacles and re-plans to a safe site.", "/app/landing?env=mars"],
+    ["moon", "Landing · Apollo LM", "Lunar Module P64 approach and P66 terminal descent in 1.625 m/s² gravity, with regolith dust.", "/app/landing?env=moon&type=apollo"],
+    ["rover", "Rover Ground Operations", "After landing: autonomous sample collection and imaging, obstacle avoidance, dust storms, comms loss and return to the lander.", "/app/rover"],
   ];
   return (
     <div>

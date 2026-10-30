@@ -39,6 +39,7 @@ TELEMETRY_DT = 0.1
 class TouchdownConfig:
     seed: int = 42
     controller: str = "pid"                 # pid | mpc | ppo
+    environment: str = "mars"               # mars | moon (selects planet + terrain presets, see apply_environment_preset)
     initial_position: list[float] = field(default_factory=lambda: [-650.0, 320.0, 2900.0])
     initial_velocity: list[float] = field(default_factory=lambda: [32.0, -14.0, -62.0])
     initial_euler_deg: list[float] = field(default_factory=lambda: [3.0, -4.0, 0.0])
@@ -73,6 +74,13 @@ class TouchdownConfig:
             elif hasattr(cfg, k):
                 setattr(cfg, k, v)
         cfg.terrain.target = list(cfg.target)
+        if cfg.environment == "moon":
+            # airless body: lunar gravity, no atmosphere (no drag, no wind), more densely cratered terrain
+            cfg.planet.gravity = 1.625
+            cfg.planet.rho0 = 0.0
+            cfg.planet.wind = [0.0, 0.0, 0.0]
+            cfg.planet.gust_std = 0.0
+            cfg.terrain.n_craters = max(cfg.terrain.n_craters, 40)
         return cfg
 
     def to_dict(self) -> dict:
@@ -142,6 +150,13 @@ class TouchdownMission:
         self._disturb_until = -1.0
         self.wall_time = 0.0
         self.max_est_err = 0.0
+        self._target_verified = False
+        self.last_scan: dict | None = None
+        self.obstacles: list[dict] = []
+        self._lidar_base = (cfg.lidar.detect_prob, cfg.lidar.range_noise_base, cfg.lidar.range_noise_per_m, cfg.lidar.max_range)
+        self.environment = {"wind_speed": float(np.hypot(*cfg.planet.wind[:2])),
+                            "wind_dir_deg": float(np.degrees(np.arctan2(cfg.planet.wind[1], cfg.planet.wind[0]))),
+                            "gust_std": cfg.planet.gust_std, "dust": 0.0}
         self.supervisor.transition(Ph.ENTRY if self._agl_true() > cfg.supervisor.ignition_agl else Ph.DESCENT, 0.0,
                                    "mission start")
         self._event("phase", f"Mission start in {self.supervisor.phase.value}")
@@ -253,15 +268,19 @@ class TouchdownMission:
         sigma_h = self.ekf.position_sigma_h()
         a = self.assessor.assess(self.target[0], self.target[1], self.hmap, sigma_h)
         self.site_status = a.to_dict()
-        if sup.phase == Ph.LANDING_APPROACH:
+        self.last_scan = scan
+        # after the first safe verdict the lidar keeps re-scanning the target every second (continuous monitoring)
+        # without toggling the phase; a later hazard re-enters SITE ASSESSMENT through _divert
+        if sup.phase == Ph.LANDING_APPROACH and not self._target_verified:
             sup.transition(Ph.SITE_ASSESSMENT, self.t, "terrain sensing within range")
             self._event("assessment", "Landing-site assessment started", scan=scan)
-        if sup.phase in (Ph.SITE_ASSESSMENT, Ph.DIVERSION) and a.covered:
+        if sup.phase in (Ph.SITE_ASSESSMENT, Ph.DIVERSION, Ph.LANDING_APPROACH) and a.covered:
             if a.safe:
                 if sup.phase == Ph.SITE_ASSESSMENT and self.hmap.scans >= 2:
                     sup.transition(Ph.LANDING_APPROACH if self.diversions == 0 else Ph.DIVERSION, self.t,
                                    "target assessed safe")
-                    self._event("assessment", "Target assessed safe", site=a.to_dict())
+                    self._event("assessment", "Target assessed safe — continuous lidar monitoring", site=a.to_dict())
+                    self._target_verified = True
                 return
             if not self.cfg.enable_diversion or agl < sc.min_divert_agl:
                 return
@@ -370,7 +389,17 @@ class TouchdownMission:
         snap = {"module": "touchdown", "t": round(self.t, 3), "phase": self.supervisor.phase.value,
                 "frame": self.telemetry[-1] if self.telemetry else self.frame(),
                 "site_status": self.site_status, "diversions": self.diversions, "result": self.result,
-                "events": self.events[-30:]}
+                "events": self.events[-30:], "environment": {**self.environment, "name": self.cfg.environment,
+                                                              "airless": self.cfg.planet.rho0 <= 0.0},
+                "original_target": self.original_target.tolist(), "obstacles": self.obstacles}
+        tx, ty = self.target[:2]
+        reg = self.hmap.scan_regions[-1] if self.hmap.scan_regions else None
+        snap["perception"] = {
+            "scans": self.hmap.scans, "region": reg, "last_scan": self.last_scan,
+            "rocks": [[round(r[0], 1), round(r[1], 1), round(r[3], 2)] for r in self.hmap.rocks
+                      if (r[0] - tx) ** 2 + (r[1] - ty) ** 2 < 120 ** 2][:400],
+            "hazard_limit_m": self.cfg.site.max_rock_height,
+            "assessment_agl": self.cfg.supervisor.assessment_agl, "min_divert_agl": self.cfg.supervisor.min_divert_agl}
         if include_paths:
             snap["predicted_trajectory"] = self.prediction.get("trajectory", [])[::2]
             snap["desired_trajectory"] = self.reference
@@ -397,12 +426,41 @@ class TouchdownMission:
 
     # -- interventions ---------------------------------------------------
     def inject_hazard(self, x: float | None = None, y: float | None = None, radius: float = 25.0) -> dict:
-        x = self.target[0] if x is None else x
-        y = self.target[1] if y is None else y
+        x = float(self.target[0] if x is None else x)
+        y = float(self.target[1] if y is None else y)
         self.terrain.add_hazard_field(x, y, radius, self.seeds.stream("hazard_injection"))
-        self._event("injection", f"Hazard field injected into TRUE terrain at ({x:.0f}, {y:.0f}) r={radius:.0f} m "
-                                 "(autonomy must discover it by sensing)")
-        return {"x": x, "y": y, "radius": radius}
+        d_target = float(np.hypot(x - self.target[0], y - self.target[1]))
+        affects = d_target < radius + self.cfg.site.footprint_radius + 4.0
+        self.obstacles.append({"x": x, "y": y, "radius": radius, "t": round(self.t, 2), "affects_target": affects})
+        self._event("injection", f"Obstacle field placed in TRUE terrain at ({x:.0f}, {y:.0f}) r={radius:.0f} m, "
+                                 f"{d_target:.0f} m from the current target"
+                                 + (" — the lander must detect it by lidar and re-plan" if affects else
+                                    " — outside the landing footprint"))
+        return {"x": x, "y": y, "radius": radius, "distance_to_target_m": d_target, "affects_target": affects,
+                "can_still_divert": self._agl_true() > self.cfg.supervisor.min_divert_agl and not self.supervisor.terminal}
+
+    def set_environment(self, wind_speed: float | None = None, wind_dir_deg: float | None = None,
+                        gust_std: float | None = None, dust: float | None = None) -> dict:
+        """Live environmental conditions. Wind/gusts change the true atmosphere the lander flies through
+        (the guidance closes the loop on the resulting drift); dust degrades the hazard lidar."""
+        env = self.environment
+        airless = self.cfg.planet.rho0 <= 0.0
+        if not airless:
+            if wind_speed is not None: env["wind_speed"] = float(wind_speed)
+            if wind_dir_deg is not None: env["wind_dir_deg"] = float(wind_dir_deg)
+            if gust_std is not None: env["gust_std"] = float(gust_std)
+            if dust is not None: env["dust"] = float(np.clip(dust, 0.0, 1.0))
+            a = np.radians(env["wind_dir_deg"])
+            self.cfg.planet.wind = [env["wind_speed"] * np.cos(a), env["wind_speed"] * np.sin(a), 0.0]
+            self.cfg.planet.gust_std = env["gust_std"]
+            dp, nb, npm, mr = self._lidar_base
+            d = env["dust"]
+            L = self.cfg.lidar
+            L.detect_prob, L.range_noise_base, L.range_noise_per_m, L.max_range = dp * (1 - 0.45 * d), nb * (1 + 3 * d), npm * (1 + 3 * d), mr * (1 - 0.5 * d)
+        self._event("environment", ("Environment unchanged: airless body (no wind, no dust storms)" if airless else
+                                    f"Environment: wind {env['wind_speed']:.1f} m/s from {env['wind_dir_deg']:.0f}°, "
+                                    f"gusts σ {env['gust_std']:.1f} m/s, dust opacity {env['dust']:.2f}"))
+        return {**env, "airless": airless}
 
     def inject_disturbance(self, force: list[float], duration: float = 3.0, wind: list[float] | None = None) -> dict:
         self.lander.ext_force = np.asarray(force, float)

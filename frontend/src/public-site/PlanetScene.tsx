@@ -1,5 +1,5 @@
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { bakeMars } from "./marsBake";
 
@@ -73,10 +73,37 @@ function Moons() {
   return (<><group ref={phobos}><SmallMoon radius={0.05} seed={1} /></group><group ref={deimos}><SmallMoon radius={0.032} seed={4} /></group></>);
 }
 
+/** Surface textured with the real photograph of Mars (background removed, public/textures/mars_disc.jpg).
+ *  The photo is a single hemisphere, so it is mapped in view space: the camera always sees the photographed
+ *  disc, with the scene's sun adding a soft terminator. Falls back to the procedural bake if it fails to load. */
+const photoVert = /* glsl */ `
+varying vec3 vNV; varying vec3 vNW;
+void main(){ vNV = normalize(normalMatrix*normal); vNW = normalize(mat3(modelMatrix)*normal);
+  gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`;
+const photoFrag = /* glsl */ `
+uniform sampler2D uMap; uniform vec3 uSun; varying vec3 vNV; varying vec3 vNW;
+void main(){
+  vec2 uv = vec2(0.5) + normalize(vNV).xy * 0.485;
+  vec3 c = texture2D(uMap, uv).rgb;
+  float day = smoothstep(-0.3, 0.55, dot(normalize(vNW), normalize(uSun)));
+  gl_FragColor = vec4(c * (0.42 + 0.78 * day), 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
+
 function Planet() {
   const { gl } = useThree();
-  const maps = useMemo(() => bakeMars(gl, 2048), [gl]);
-  const surface = useMemo(() => new THREE.MeshStandardMaterial({ map: maps.color, bumpMap: maps.height, bumpScale: 9, roughness: 0.96, metalness: 0 }), [maps]);
+  const [photoFailed, setPhotoFailed] = useState(false);
+  const photo = useMemo(() => {
+    const t = new THREE.TextureLoader().load("/textures/mars_disc.jpg", undefined, undefined, () => setPhotoFailed(true));
+    t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+    return t;
+  }, []);
+  const maps = useMemo(() => (photoFailed ? bakeMars(gl, 2048) : null), [gl, photoFailed]);
+  const surface = useMemo<THREE.Material>(() => (maps
+    ? new THREE.MeshStandardMaterial({ map: maps.color, bumpMap: maps.height, bumpScale: 9, roughness: 0.96, metalness: 0 })
+    : new THREE.ShaderMaterial({ vertexShader: photoVert, fragmentShader: photoFrag,
+        uniforms: { uMap: { value: photo }, uSun: { value: new THREE.Vector3(-5, 1.6, 1.8) } } })), [maps, photo]);
   const spin = useRef<THREE.Mesh>(null!);
   const group = useRef<THREE.Group>(null!);
   const clouds = useRef<THREE.Mesh>(null!);

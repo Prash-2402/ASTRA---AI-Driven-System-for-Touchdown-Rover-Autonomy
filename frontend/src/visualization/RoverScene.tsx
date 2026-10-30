@@ -1,12 +1,12 @@
 import { Line } from "@react-three/drei";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, ThreeEvent, useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import type { RoverSnapshot } from "../services/types";
 import { CameraRig, CamMode, FollowSun, Rocks, SkyDome, ramp, useDust } from "./lib/scene";
 import { bilinear, gridGeometry } from "./lib/terrainMesh";
 import { fbmField, regolith } from "./lib/textures";
-import DescentStage from "./models/DescentStage";
+import MarsLander from "./models/MarsLander";
 import RoverModel from "./models/RoverModel";
 
 const SUN: [number, number, number] = [0.55, 0.62, 0.45];
@@ -108,53 +108,30 @@ function TraverseRover({ snap, labels, roverPos }: { snap: RoverSnapshot; labels
   );
 }
 
-/** Sky-crane playback: every pose comes from the computed landing dynamics (simulation/rover/skycrane.py). */
-function SkyCrane({ landing, time, labels, dust, focus }: { landing: any; time: number; labels: boolean; dust: ReturnType<typeof useDust>; focus: React.MutableRefObject<THREE.Vector3> }) {
-  const frames = landing.frames;
-  const k = Math.max(0, Math.min(frames.length - 1, Math.floor(time / 0.05)));
-  const f = frames[k], f2 = frames[Math.min(frames.length - 1, k + 1)];
-  const a = Math.min(1, Math.max(0, (time - f.t) / 0.05));
-  const lerp3 = (u: number[], v: number[]) => [u[0] + (v[0] - u[0]) * a, u[1] + (v[1] - u[1]) * a, u[2] + (v[2] - u[2]) * a];
-  const ds = lerp3(f.ds, f2.ds), rv = lerp3(f.rover, f2.rover);
-  const dsS = toS(ds[0], ds[1], ds[2]), rvS = toS(rv[0], rv[1], rv[2]);
-  const h = landing.heading;
-  const dsRot = useMemo(() => new THREE.Euler(), []);
-  dsRot.set(0, h, 0, "YXZ");
-  const pitchAxis = new THREE.Vector3(Math.sin(h), 0, Math.cos(h));
-  const dsQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), h).premultiply(new THREE.Quaternion().setFromAxisAngle(pitchAxis, -f.ds_pitch));
-  const rvQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(f.swing[1], h, -f.swing[0], "YXZ"));
-  focus.current.copy(f.rover_on_ground ? rvS : dsS.clone().lerp(rvS, 0.5));
-  const lastT = useRef(time);
+/** Wind-blown dust for storms: particles advected by the wind around the rover, density from the storm level. */
+function StormDust({ level, wind, center }: { level: number; wind: number; center: React.MutableRefObject<THREE.Vector3> }) {
+  const N = 2600;
+  const geom = useMemo(() => { const g = new THREE.BufferGeometry(); const p = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) p.set([(Math.random() - 0.5) * 90, Math.random() * 14, (Math.random() - 0.5) * 90], i * 3);
+    g.setAttribute("position", new THREE.BufferAttribute(p, 3)); return g; }, []);
+  const ref = useRef<THREE.Points>(null!);
   useFrame((_, dt) => {
-    const alt = f.altitude;
-    if (alt < 25 && f.throttle > 0.05 && time !== lastT.current) {
-      const gy = dust.groundRef.current(dsS.x, dsS.z);
-      dust.emit(Math.round(f.throttle * (25 - alt) * 2.5), dsS.x, gy + 0.05, dsS.z, 3, 14, 5, 30, 1.5 + alt * 0.15, 3);
-    }
-    lastT.current = time;
-    dust.step(Math.min(dt, 0.05));
+    const a = geom.attributes.position as THREE.BufferAttribute; const v = Math.max(1.5, wind) * 0.6;
+    for (let i = 0; i < N; i++) { let x = a.getX(i) + v * dt, z = a.getZ(i) - v * 0.3 * dt; const y = a.getY(i) + Math.sin(i + x * 0.2) * dt * 0.3;
+      if (x > 45) x -= 90; if (z < -45) z += 90; a.setXYZ(i, x, y, z); }
+    a.needsUpdate = true;
+    ref.current.position.set(center.current.x, center.current.y - 2, center.current.z);
+    (ref.current.material as THREE.PointsMaterial).opacity = Math.min(0.75, level * 0.9);
   });
-  const attach: [number, number][] = [[0.3, 0.2], [0.3, -0.2], [-0.3, 0]];
-  const hangingRover = (
-    <group position={rvS} quaternion={rvQuat}>
-      <RoverModel pose={{ rockerL: 0, rockerR: 0, bogieL: 0, bogieR: 0 }} wheelSpeeds={[0, 0, 0, 0, 0, 0]} labels={labels && f.rover_on_ground} />
-    </group>
-  );
-  return (
-    <group>
-      {hangingRover}
-      <group position={dsS} quaternion={dsQuat}><DescentStage throttle={f.throttle} labels={labels} /></group>
-      {f.bridle > 0 && attach.map(([ax, az], i) => {
-        const top = dsS.clone().add(new THREE.Vector3(0, -0.2, 0));
-        const bot = rvS.clone().add(new THREE.Vector3(ax * Math.cos(h) + az * Math.sin(h), 0.12, -ax * Math.sin(h) + az * Math.cos(h)));
-        return <Line key={i} points={[top, bot]} color={i === 2 ? "#F2B35B" : "#e7e2d6"} lineWidth={i === 2 ? 2.2 : 1.4} />;
-      })}
-    </group>
-  );
+  return <points ref={ref} geometry={geom} visible={level > 0.03} frustumCulled={false}><pointsMaterial color="#b9845a" size={0.18} transparent opacity={0} depthWrite={false} sizeAttenuation /></points>;
 }
 
-export default function RoverScene({ snap, scene, cam, labels, lidar, overlay, costmap, landing, landingTime, mode }:
-  { snap: RoverSnapshot | null; scene: any; cam: CamMode; labels: boolean; lidar: boolean; overlay: Overlay; costmap: any; landing: any; landingTime: number; mode: "landing" | "traverse" }) {
+const TASK_ICON: Record<string, string> = { collect_sand: "#f2b35b", collect_sample: "#c084fc", capture_image: "#38bdf8" };
+const TASK_STATUS: Record<string, string> = { done: "#22c55e", skipped: "#9ca3af", working: "#f59e0b", active: "#ffffff", pending: "#e5e7eb" };
+
+export default function RoverScene({ snap, scene, cam, labels, lidar, overlay, costmap, placing = false, onPlace }:
+  { snap: RoverSnapshot | null; scene: any; cam: CamMode; labels: boolean; lidar: boolean; overlay: Overlay; costmap: any; placing?: boolean; onPlace?: (x: number, y: number) => void }) {
+  const mode = "traverse" as const;
   const t = scene.terrain;
   const G = useMarsGround(t);
   const reg = useMemo(() => regolith("mars"), []);
@@ -165,9 +142,16 @@ export default function RoverScene({ snap, scene, cam, labels, lidar, overlay, c
   const dust = useDust({ max: 2500, gravity: G_MARS, drag: 1.4, color: "#c49a72", size: 0.12 });
   dust.groundRef.current = (x, z) => G.ground(x, -z);
   const roverPos = useRef(new THREE.Vector3(t.start[0], G.ground(t.start[0], t.start[1]) + 0.6, -t.start[1]));
-  const focus = useRef(roverPos.current.clone());
-  const subject = () => (mode === "landing" ? focus.current : roverPos.current);
-  const heading = mode === "landing" ? landing?.heading ?? 0 : snap?.frame?.truth?.rpy?.[2] ?? 0;
+  const subject = () => roverPos.current;
+  const heading = snap?.frame?.truth?.rpy?.[2] ?? 0;
+  const ops = (snap as any)?.ops;
+  const envr = (snap as any)?.environment || { sandstorm: 0, wind_speed: 0, comms: true };
+  const storm = envr.sandstorm ?? 0;
+  const reticle = useRef<THREE.Group>(null!);
+  const terrainEvents = placing ? {
+    onPointerMove: (e: ThreeEvent<PointerEvent>) => { if (reticle.current) { reticle.current.visible = true; reticle.current.position.copy(e.point).add(new THREE.Vector3(0, 0.05, 0)); } },
+    onClick: (e: ThreeEvent<MouseEvent>) => { if (e.delta > 4 || !onPlace) return; e.stopPropagation(); onPlace(e.point.x, -e.point.z); },
+  } : {};
   const V = (p: number[], lift = 0.08) => toS(p[0], p[1], G.ground(p[0], p[1]) + lift);
   const planned = snap?.planned_path && snap.planned_path.length > 1 ? snap.planned_path.map((p) => V(p, 0.14)) : null;
   const actual = snap?.actual_path && snap.actual_path.length > 1 ? snap.actual_path.map((p) => V(p, 0.1)) : null;
@@ -180,32 +164,41 @@ export default function RoverScene({ snap, scene, cam, labels, lidar, overlay, c
   const goal = snap?.goal ?? t.target;
   const goalV = V(goal, 0);
   return (
-    <Canvas shadows dpr={[1, 1.75]} camera={{ fov: 50, near: 0.05, far: 6000, position: [t.start[0] - 30, 40, -t.start[1] + 30] }}>
-      <SkyDome horizon="#d6ab83" zenith="#8a6f5c" sunDir={SUN} sunColor="#fff0d8" />
-      <fog attach="fog" args={["#cfa47e", 90, 700]} />
+    <Canvas shadows dpr={[1, 1.75]} camera={{ fov: 50, near: 0.05, far: 6000, position: [t.start[0] - 30, 40, -t.start[1] + 30] }} style={{ cursor: placing ? "crosshair" : undefined }}>
+      <SkyDome horizon={storm > 0.05 ? "#c58c62" : "#d6ab83"} zenith={storm > 0.05 ? "#9b6c4c" : "#8a6f5c"} sunDir={SUN} sunColor="#fff0d8" />
+      <fog attach="fog" args={[storm > 0.05 ? "#bf8a62" : "#cfa47e", 90 * (1 - 0.85 * storm) + 4, 700 * (1 - 0.9 * storm) + 25]} />
       <hemisphereLight args={["#f3dcc0", "#5a3d2a", 0.55]} />
-      <FollowSun subject={subject} direction={SUN} intensity={2.4} color="#fff1dc" size={18} />
-      <mesh geometry={G.context} material={mats[1]} receiveShadow />
-      <mesh geometry={G.patch} material={mats[0]} receiveShadow />
+      <FollowSun subject={subject} direction={SUN} intensity={2.4 * (1 - 0.55 * storm)} color="#fff1dc" size={18} />
+      <mesh geometry={G.context} material={mats[1]} receiveShadow {...terrainEvents} />
+      <mesh geometry={G.patch} material={mats[0]} receiveShadow {...terrainEvents} />
+      {placing && <group ref={reticle} visible={false}><mesh rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[0.55, 0.75, 32]} /><meshBasicMaterial color="#ef4444" transparent opacity={0.9} depthWrite={false} /></mesh></group>}
+      {ops && <group position={V(ops.lander, 0)} rotation={[0, Math.atan2(ops.home[1] - ops.lander[1], ops.home[0] - ops.lander[0]), 0]}>
+        <MarsLander throttle={0} lateral={[0, 0]} torque={[0, 0, 0]} labels={labels} landed /></group>}
+      {ops && <mesh position={V(ops.home, 0.04)} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[1.0, 1.2, 40]} /><meshBasicMaterial color="#e5e7eb" transparent opacity={0.6} /></mesh>}
+      {ops?.tasks?.map((k: any) => <group key={k.id} position={V([k.x, k.y], 0)}>
+        <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[1.3, 1.5, 40]} /><meshBasicMaterial color={TASK_STATUS[k.status] || "#fff"} transparent opacity={0.85} /></mesh>
+        <mesh position={[0, 1.1, 0]}><cylinderGeometry args={[0.025, 0.025, 2.2, 8]} /><meshStandardMaterial color="#d8dde5" metalness={0.6} roughness={0.3} /></mesh>
+        <mesh position={[0, 2.25, 0]}><octahedronGeometry args={[0.22]} /><meshStandardMaterial color={TASK_ICON[k.kind] || "#fff"} emissive={TASK_ICON[k.kind] || "#fff"} emissiveIntensity={k.status === "done" ? 0.1 : 0.6} /></mesh>
+      </group>)}
+      <StormDust level={storm} wind={envr.wind_speed ?? 0} center={roverPos} />
       <Rocks rocks={G.rocks} color="#6e4f3d" />
       <Rocks rocks={G.deco} color="#7a5a45" />
       {mode === "traverse" && overlay !== "none" && costmap && <OverlayCells t={t} grid={costmap} kind={overlay} ground={G.ground} />}
-      <mesh position={V(t.start, 0.04)} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[0.7, 0.9, 48]} /><meshBasicMaterial color="#E7EEF7" transparent opacity={0.7} /></mesh>
-      <group position={goalV}>
+      {!ops && <mesh position={V(t.start, 0.04)} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[0.7, 0.9, 48]} /><meshBasicMaterial color="#E7EEF7" transparent opacity={0.7} /></mesh>}
+      {!ops && <group position={goalV}>
         <mesh position={[0, 0.04, 0]} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[0.8, 1.1, 48]} /><meshBasicMaterial color="#6FD3A8" /></mesh>
         <mesh position={[0, 1.2, 0]}><cylinderGeometry args={[0.025, 0.025, 2.4, 8]} /><meshStandardMaterial color="#d8dde5" metalness={0.6} roughness={0.3} /></mesh>
         <mesh position={[0.25, 2.2, 0]}><boxGeometry args={[0.5, 0.3, 0.01]} /><meshStandardMaterial color="#6FD3A8" emissive="#6FD3A8" emissiveIntensity={0.4} /></mesh>
-      </group>
+      </group>}
+      {ops && <mesh position={V(goal, 0.06)} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[0.35, 0.5, 32]} /><meshBasicMaterial color="#6FD3A8" /></mesh>}
       {mode === "traverse" && old.map((h, i) => <Line key={i} points={h.path.map((p) => V(p, 0.12))} color="#6FD3A8" lineWidth={1} transparent opacity={0.25} />)}
       {mode === "traverse" && planned && <Line points={planned} color="#6FD3A8" lineWidth={3.2} />}
       {mode === "traverse" && actual && <Line points={actual} color="#ffffff" lineWidth={2} />}
       {mode === "traverse" && est && <Line points={est} color="#67B7F7" lineWidth={1.4} dashed dashSize={0.4} gapSize={0.25} />}
       {mode === "traverse" && lidar && <points geometry={lidarGeom}><pointsMaterial color="#67F7E1" size={0.07} sizeAttenuation /></points>}
       {dust.points}
-      {mode === "traverse" && snap && <TraverseRover snap={snap} labels={labels} roverPos={roverPos} />}
-      {mode === "landing" && landing && <SkyCrane landing={landing} time={landingTime} labels={labels} dust={dust} focus={focus} />}
-      <CameraRig mode={cam} subject={subject} heading={heading} chaseDist={mode === "landing" ? 6.5 : 4.2} chaseHeight={mode === "landing" ? 2.6 : 1.8}
-        lookAhead={mode === "landing" ? 0 : 2} overheadHeight={mode === "landing" ? 35 : 32}
+      {snap && <TraverseRover snap={snap} labels={labels} roverPos={roverPos} />}
+      <CameraRig mode={cam} subject={subject} heading={heading} chaseDist={4.2} chaseHeight={1.8} lookAhead={2} overheadHeight={32}
         observer={toS(t.start[0] + 9, t.start[1] - 7, G.ground(t.start[0], t.start[1]) + 1.7)} />
     </Canvas>
   );
