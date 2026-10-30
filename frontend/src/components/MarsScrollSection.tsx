@@ -14,7 +14,7 @@ interface MarsScrollSectionProps {
 
 export const MarsScrollSection: React.FC<MarsScrollSectionProps> = ({ onEnterApp }) => {
   const navigate = useNavigate()
-  const trackRef = useRef<HTMLDivElement>(null)
+  const trackRef = useRef<HTMLElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   // Cache for loaded images
@@ -202,7 +202,7 @@ export const MarsScrollSection: React.FC<MarsScrollSectionProps> = ({ onEnterApp
     return () => window.removeEventListener('resize', handleResize)
   }, [handleResize])
 
-  // Scroll listener mapping scroll distance to frameIndex [0, 300]
+  // Scroll listener mapping section scroll range to frameIndex [0, 300]
   useEffect(() => {
     if (reducedMotion) return
 
@@ -213,13 +213,17 @@ export const MarsScrollSection: React.FC<MarsScrollSectionProps> = ({ onEnterApp
         const track = trackRef.current
         if (!track) return
 
+        const scrollY = window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0
         const rect = track.getBoundingClientRect()
-        const totalDistance = rect.height - window.innerHeight
-        if (totalDistance <= 0) return
+        const sectionStart = rect.top + scrollY
+        const sectionHeight = track.offsetHeight
+        const viewportHeight = window.innerHeight
+        const scrollDistance = sectionHeight - viewportHeight
 
-        // Compute normalized progress [0, 1]
-        const scrolled = -rect.top
-        const p = Math.max(0, Math.min(1, scrolled / totalDistance))
+        if (scrollDistance <= 0) return
+
+        // Compute normalized local progress clamped strictly [0, 1]
+        const p = Math.max(0, Math.min(1, (scrollY - sectionStart) / scrollDistance))
         setProgress(p)
 
         const targetFrame = Math.round(p * (TOTAL_FRAMES - 1))
@@ -247,7 +251,6 @@ export const MarsScrollSection: React.FC<MarsScrollSectionProps> = ({ onEnterApp
   }, [loadFrame, renderFrame, reducedMotion])
 
   // Fade out hero content gradually as user scrolls into the planetary reveal
-  // From progress 0.0 to 0.45 text gently fades out; beyond 0.5 text is hidden so user sees pure planetary exploration
   const textOpacity = reducedMotion ? 1 : Math.max(0, 1 - progress * 2.4)
   const textTranslateY = reducedMotion ? 0 : -(progress * 60)
   const isTextInteractive = textOpacity > 0.15
@@ -258,13 +261,13 @@ export const MarsScrollSection: React.FC<MarsScrollSectionProps> = ({ onEnterApp
   }
 
   return (
-    <div
+    <section
       ref={trackRef}
-      className={`mars-scroll-track ${reducedMotion ? 'reduced-motion' : ''}`}
+      className={`mars-scroll-section mars-scroll-track ${reducedMotion ? 'reduced-motion' : ''}`}
       id="overview"
     >
       {/* Pinned Sticky Viewport Container */}
-      <div className="mars-sticky-container">
+      <div className="mars-sticky-viewport mars-sticky-container">
         {/* Frame Canvas */}
         <canvas ref={canvasRef} className="mars-frame-canvas" />
 
@@ -349,9 +352,8 @@ export const MarsScrollSection: React.FC<MarsScrollSectionProps> = ({ onEnterApp
           </div>
         </div>
       </div>
-    </div>
+    </section>
   )
 }
 
 export default MarsScrollSection
-

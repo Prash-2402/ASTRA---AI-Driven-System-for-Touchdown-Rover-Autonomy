@@ -4,30 +4,37 @@
    ============================================================ */
 
 /* ─── Track providing 300vh scroll budget for 301 frames ─────── */
+.mars-scroll-section,
 .mars-scroll-track {
   position: relative;
   width: 100%;
   height: 300vh;
   background: var(--astra-dark-bg);
+  /* Ensure this container does not clip or prevent normal document scrolling */
+  overflow: visible;
 }
 
+.mars-scroll-section.reduced-motion,
 .mars-scroll-track.reduced-motion {
   height: 100vh;
 }
 
 /* ─── Pinned Sticky Full-Viewport Container ─────────────────── */
+.mars-sticky-viewport,
 .mars-sticky-container {
   position: sticky;
   top: 0;
   left: 0;
   width: 100%;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   justify-content: center;
   background: var(--astra-dark-bg);
-  z-index: 10;
+  z-index: 2;
+  will-change: transform;
 }
 
 /* ─── Mars Frame Canvas ─────────────────────────────────────── */
@@ -148,105 +155,120 @@
   letter-spacing: 0.02em;
   cursor: pointer;
   border: 1px solid var(--astra-burgundy);
-  transition: all 0.25s ease;
-  box-shadow: 0 8px 30px rgba(89, 9, 7, 0.45);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 8px 32px rgba(89, 9, 7, 0.45);
 }
 
 .hero-content-layer .btn-primary-hero:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 38px rgba(89, 9, 7, 0.6);
   background: var(--astra-burgundy-hover);
   border-color: var(--astra-burgundy-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 14px 44px rgba(89, 9, 7, 0.65);
 }
 
-/* Secondary Hero CTA — Warm Cream Border */
+.btn-arrow {
+  transition: transform 0.25s ease;
+}
+
+.hero-content-layer .btn-primary-hero:hover .btn-arrow {
+  transform: translateX(4px);
+}
+
+/* Secondary Hero CTA — Outlined Warm Cream */
 .hero-content-layer .btn-secondary-hero {
-  padding: 16px 36px;
-  background: transparent;
-  border: 1px solid rgba(232, 210, 181, 0.45);
+  padding: 16px 32px;
+  background: rgba(165, 167, 155, 0.08);
+  border: 1px solid rgba(232, 210, 181, 0.25);
   border-radius: 100px;
   color: var(--astra-cream);
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   cursor: pointer;
-  transition: all 0.25s ease;
   backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: all 0.25s ease;
 }
 
 .hero-content-layer .btn-secondary-hero:hover {
-  background: rgba(232, 210, 181, 0.12);
-  border-color: rgba(232, 210, 181, 0.7);
-  color: var(--astra-dark-text);
+  background: rgba(232, 210, 181, 0.15);
+  border-color: var(--astra-cream);
+  color: var(--astra-cream-ivory);
   transform: translateY(-2px);
 }
 
-/* Hero Metrics */
+/* Metrics Row */
 .hero-content-layer .hero-metrics {
   display: flex;
   align-items: center;
-  gap: 28px;
+  gap: 32px;
+  padding-top: 32px;
+  border-top: 1px solid rgba(232, 210, 181, 0.14);
 }
 
-.hero-content-layer .hero-metric {
+.hero-metric {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.hero-content-layer .metric-label {
+.hero-metric .metric-label {
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--astra-sage);
 }
 
-.hero-content-layer .metric-value {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--astra-cream);
+.hero-metric .metric-value {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--astra-dark-text);
+  letter-spacing: 0.04em;
 }
 
-.hero-content-layer .hero-metric-divider {
+.hero-metric-divider {
   width: 1px;
-  height: 36px;
-  background: var(--astra-dark-border);
+  height: 28px;
+  background: rgba(232, 210, 181, 0.14);
 }
 
-/* ─── Scroll Indicator ─────────────────────────────────────── */
-.mars-sticky-container .hero-scroll-indicator {
+/* ─── Scroll Progress & Sequence Indicator ──────────────────── */
+.hero-scroll-indicator {
   position: absolute;
-  bottom: 40px;
+  bottom: 36px;
   left: 48px;
   z-index: 25;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   pointer-events: none;
   transition: opacity 0.3s ease;
 }
 
-.mars-sticky-container .scroll-track {
+.scroll-track {
   width: 2px;
-  height: 56px;
+  height: 48px;
   background: rgba(232, 210, 181, 0.18);
+  border-radius: 1px;
   position: relative;
   overflow: hidden;
-  border-radius: 1px;
 }
 
-.mars-sticky-container .scroll-thumb {
+.scroll-thumb {
   position: absolute;
   top: 0;
+  left: 0;
   width: 100%;
   background: var(--astra-cream);
+  border-radius: 1px;
+  transition: height 0.15s ease-out;
   box-shadow: 0 0 8px rgba(232, 210, 181, 0.8);
-  transition: height 0.1s linear;
 }
 
-.mars-sticky-container .hero-scroll-indicator span {
-  font-size: 9.5px;
+.hero-scroll-indicator span {
+  font-size: 10px;
+  font-weight: 600;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--astra-sage);
@@ -282,6 +304,10 @@
 
 /* ─── Responsive Media Queries ──────────────────────────────── */
 @media (max-width: 900px) {
+  .mars-scroll-section,
+  .mars-scroll-track {
+    height: 240vh;
+  }
   .hero-content-layer {
     padding: 100px 24px 60px;
   }
@@ -295,12 +321,19 @@
   .hero-content-layer .hero-metric-divider {
     display: none;
   }
-  .mars-sticky-container .hero-scroll-indicator {
+  .hero-scroll-indicator {
     left: 24px;
     bottom: 24px;
   }
   .mars-telemetry-stamp {
     right: 24px;
     bottom: 24px;
+  }
+}
+
+@media (max-width: 600px) {
+  .mars-scroll-section,
+  .mars-scroll-track {
+    height: 200vh;
   }
 }

@@ -6,7 +6,7 @@
 .landing-root {
   position: relative;
   min-height: 100vh;
-  overflow-x: hidden;
+  overflow-x: clip;
   background: var(--astra-dark-bg);
   color: var(--astra-dark-text);
   font-family: var(--font-sans);
@@ -121,6 +121,17 @@
   background: var(--astra-burgundy-hover);
   border-color: var(--astra-burgundy-hover);
   transform: translateY(-1px);
+}
+
+/* ─── Anchor Scroll Offsets ────────────────────────────────── */
+.mars-scroll-section,
+.mission-intro-section,
+.touchdown-showcase-section,
+.rover-showcase-section,
+.intelligence-section,
+.research-section,
+.cta-section {
+  scroll-margin-top: 72px;
 }
 
 /* ─── SECTION 2: Mission Introduction (Light Editorial) ─────── */
