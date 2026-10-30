@@ -233,47 +233,7 @@
   background: rgba(232, 210, 181, 0.14);
 }
 
-/* ─── Scroll Progress & Sequence Indicator ──────────────────── */
-.hero-scroll-indicator {
-  position: absolute;
-  bottom: 36px;
-  left: 48px;
-  z-index: 25;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  pointer-events: none;
-  transition: opacity 0.3s ease;
-}
 
-.scroll-track {
-  width: 2px;
-  height: 48px;
-  background: rgba(232, 210, 181, 0.18);
-  border-radius: 1px;
-  position: relative;
-  overflow: hidden;
-}
-
-.scroll-thumb {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  background: var(--astra-cream);
-  border-radius: 1px;
-  transition: height 0.15s ease-out;
-  box-shadow: 0 0 8px rgba(232, 210, 181, 0.8);
-}
-
-.hero-scroll-indicator span {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--astra-sage);
-  writing-mode: vertical-rl;
-}
 
 /* ─── Responsive Media Queries ──────────────────────────────── */
 @media (max-width: 900px) {
@@ -294,10 +254,7 @@
   .hero-content-layer .hero-metric-divider {
     display: none;
   }
-  .hero-scroll-indicator {
-    left: 24px;
-    bottom: 24px;
-  }
+
 }
 
 @media (max-width: 600px) {

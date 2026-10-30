@@ -301,10 +301,6 @@ export const MarsScrollSection: React.FC<MarsScrollSectionProps> = ({ onEnterApp
               simulation environment.
             </p>
             <div className="hero-actions">
-              <button className="btn-primary-hero" onClick={handleLaunch}>
-                <span>Explore ASTRA</span>
-                <span className="btn-arrow">→</span>
-              </button>
               <button className="btn-secondary-hero" onClick={handleLaunch}>
                 Enter Mission Control
               </button>
@@ -328,21 +324,7 @@ export const MarsScrollSection: React.FC<MarsScrollSectionProps> = ({ onEnterApp
           </div>
         </div>
 
-        {/* Scroll Progress Indicator */}
-        <div
-          className="hero-scroll-indicator"
-          style={{ opacity: Math.max(0, 1 - progress * 3) }}
-        >
-          <div className="scroll-track">
-            <div
-              className="scroll-thumb"
-              style={{
-                height: `${Math.max(15, progress * 100)}%`,
-              }}
-            />
-          </div>
-          <span>Scroll to explore</span>
-        </div>
+
       </div>
     </section>
   )
