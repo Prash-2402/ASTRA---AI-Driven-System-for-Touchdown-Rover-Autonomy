@@ -17,6 +17,7 @@ declare namespace THREE {
   type Color = any
   type Vector3 = any
   type BufferGeometry = any
+  type BufferAttribute = any
   type Material = any
   type Object3D = any
 }
