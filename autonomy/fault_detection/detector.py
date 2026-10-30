@@ -19,6 +19,18 @@ from shared.enums import FaultType as FT
 
 @dataclass
 class DetectorConfig:
+    """Configurable thresholds for raw evidence anomaly flagging.
+    
+    Attributes:
+        stale_s: Maximum allowable age of sensor packets before flagging staleness.
+        lidar_corruption: Fraction of ground-ring returns inconsistent with ground plane geometry.
+        visloc_nis: EKF Normalized Innovation Squared threshold for visual localisation divergence.
+        wheel_residual: Isolated wheel speed tracking residual (speed error vs median of peers).
+        battery_ratio: Ratio of measured electrical power to mechanical model prediction.
+        inconsistency: Semantic perception inconsistency threshold (camera vs lidar traversability).
+        inconsistency_min_checked: Minimum number of mapped cells before evaluating consistency.
+        persistence: Number of consecutive control ticks a test must pass to engage active flag.
+    """
     stale_s: float = 1.2
     lidar_corruption: float = 0.45
     visloc_nis: float = 25.0
