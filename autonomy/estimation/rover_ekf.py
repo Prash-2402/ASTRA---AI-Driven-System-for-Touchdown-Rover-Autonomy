@@ -57,9 +57,11 @@ class RoverEKF:
             self.innovations = self.innovations[-1000:]
         if gate is not None and nis > gate:
             return False
+        # Kalman gain computation
         K = self.P @ H.T @ Si
         self.x = self.x + K @ y
         self.x[4] = wrap_angle(self.x[4])
+        # Joseph-form covariance update: (I - KH) P (I - KH)^T + K R K^T (preserves positive-definiteness)
         IKH = np.eye(8) - K @ H
         self.P = IKH @ self.P @ IKH.T + K @ R @ K.T
         self.P = 0.5 * (self.P + self.P.T)
