@@ -2,6 +2,7 @@ import { OrbitControls } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
+import { Line2, LineGeometry, LineMaterial } from "three-stdlib";
 import { regolith } from "./textures";
 
 export type CamMode = "chase" | "observer" | "overhead" | "cinematic" | "free" | "window" | "orbiter" | "front" | "frontWide";
@@ -148,6 +149,26 @@ export function useDust({ max = 4000, gravity, drag = 0, color = "#bdb6ab", size
   };
   const points = <points geometry={geom} material={mat} frustumCulled={false} />;
   return { points, step, emit, groundRef };
+}
+
+/** Fat polyline for live paths. Unlike drei's <Line>, the material is created once (drei disposes and
+ *  re-creates it on every points change, forcing a shader recompile ~10x/s per line -> stutter), the geometry
+ *  is rebuilt only when the polyline actually changes (cheap signature, not array identity) and the replaced
+ *  geometry is always disposed (no GPU buffer growth on integrated graphics, which share system RAM). */
+export function StableLine({ points, color, lineWidth = 1, dashed = false, dashSize = 1, gapSize = 0.5, opacity = 1 }:
+  { points: (THREE.Vector3 | number[])[]; color: string; lineWidth?: number; dashed?: boolean; dashSize?: number; gapSize?: number; opacity?: number }) {
+  const { size } = useThree();
+  const flat = points.length > 1 ? points.flatMap((p: any) => (Array.isArray(p) ? [p[0], p[1], p[2]] : [p.x, p.y, p.z])) : null;
+  const sig = flat ? `${flat.length}|${flat.slice(0, 3).map((v) => v.toFixed(2)).join(",")}|${flat.slice(-3).map((v) => v.toFixed(2)).join(",")}|${flat[Math.floor(flat.length / 2)]?.toFixed(2)}` : "";
+  const mat = useMemo(() => new LineMaterial({ color: new THREE.Color(color).getHex(), linewidth: lineWidth, dashed, dashSize, gapSize,
+    transparent: opacity < 1, opacity }), [color, lineWidth, dashed, dashSize, gapSize, opacity]);
+  if (dashed) mat.defines.USE_DASH = ""; else delete mat.defines.USE_DASH;
+  mat.resolution.set(size.width, size.height);
+  const line = useMemo(() => new Line2(), []);
+  const geom = useMemo(() => { if (!flat) return null; const g = new LineGeometry(); g.setPositions(flat); return g; }, [sig]); // eslint-disable-line
+  useEffect(() => { if (geom) { line.geometry = geom; line.computeLineDistances(); } return () => geom?.dispose(); }, [geom, line]);
+  useEffect(() => { line.material = mat; return () => mat.dispose(); }, [mat, line]);
+  return geom ? <primitive object={line} /> : null;
 }
 
 /** Diverging colour ramp for gradient overlays (0 -> mint, 0.5 -> amber, 1 -> red). */

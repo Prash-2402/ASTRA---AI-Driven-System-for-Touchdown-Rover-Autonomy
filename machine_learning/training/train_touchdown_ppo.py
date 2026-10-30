@@ -1,4 +1,4 @@
-"""PPO training for ASTRA TOUCHDOWN (Stable-Baselines3), warm-started from demonstrations.
+﻿"""PPO training for ASTRA TOUCHDOWN (Stable-Baselines3), warm-started from demonstrations.
 
 Why: a randomly initialised policy essentially never lands, so plain PPO never observes the landing
 reward (previous run: 0 % success after 100 k steps). Training therefore has two stages:
@@ -61,10 +61,10 @@ def evaluate(model, episodes: int = 10, seed0: int = 9_000_000) -> dict:
 def _demo_episode(args) -> dict:
     """One PID-flown episode through the policy interface. Returns observations, clean PID actions, returns."""
     seed, noise = args
-    from autonomy.control.lander_pid import LanderPIDController
+    from autonomy.control.lander_pid import LanderPIDConfig, LanderPIDController
     from machine_learning.environments.touchdown_env import POLICY_DT, TouchdownEnv, accel_to_action
     env = TouchdownEnv(seed=seed)
-    pid = LanderPIDController()
+    pid = LanderPIDController(LanderPIDConfig(profile_k_low=0.15))   # demonstrations on the policy's own profile
     rng = np.random.default_rng(seed + 17)
     obs, _ = env.reset(seed=seed)
     O, A, R = [], [], []
@@ -141,7 +141,7 @@ def train(timesteps: int, n_envs: int, run_id: str | None = None, seed: int = 0,
     meta = {"status": "running", "started_at": _now(), "timesteps_target": timesteps, "n_envs": n_envs, "seed": seed,
             "method": "PPO warm-started by behaviour cloning of cascade-PID demonstrations, then PPO fine-tuning",
             "bc_episodes": bc_episodes, "hyperparameters": hp,
-            "environment_version": "v3 (per-worker episode seeds, graded terminal reward, target jumps, wind randomisation, fast mode)",
+            "environment_version": "v4 (precision success <=10 m + uncapped miss penalty, per-worker seeds, graded terminal reward, target jumps, wind randomisation, fast mode)",
             "versions": {"python": platform.python_version(), "torch": torch.__version__,
                          "stable_baselines3": stable_baselines3.__version__, "numpy": np.__version__}}
     mgr.write_meta(run_id, meta)

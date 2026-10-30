@@ -60,6 +60,10 @@ class TouchdownConfig:
     ppo_checkpoint: str | None = None
     enable_diversion: bool = True
     sensor_health: bool = True              # lying-sensor monitor (CUSUM + cross-check) with isolation
+    hover_scan: bool = True                 # PID/MPC: arrest the descent over each pad and scan before committing
+    hover_agl: float = 80.0                 # m above the pad (kept above the classic 70 m diversion floor)
+    hover_s: float = 4.0                    # seconds of stable hover while the lidar scans at 2 Hz
+    late_divert_agl: float = 8.0            # PID/MPC: slower final descent allows side-steps down to this AGL
     ppo_guard: str = "monitor"              # off | monitor | fallback (learned-controller runtime guard)
 
     @staticmethod
@@ -158,6 +162,17 @@ class TouchdownMission:
         self.wall_time = 0.0
         self.max_est_err = 0.0
         self._target_verified = False
+        # classical guidance (not PPO, not RL training): gentle final descent, hover-and-scan, late side-steps
+        self.classic = cfg.controller in ("pid", "mpc") and not fast
+        self.hovering = False
+        self._hover_t0: float | None = None
+        self._hover_start = 0.0
+        self._hover_key = None
+        self._hovered: set = set()
+        self.hover_log: list[dict] = []
+        if self.classic:
+            self.predictor.k_low = (cfg.pid if cfg.controller == "pid" else cfg.mpc).profile_k_low
+            cfg.supervisor.min_divert_agl = min(cfg.supervisor.min_divert_agl, cfg.late_divert_agl)
         self.health = SensorHealthMonitor() if (cfg.sensor_health and not fast) else None
         self._last_alt = None
         self.last_scan: dict | None = None
@@ -185,7 +200,7 @@ class TouchdownMission:
                 "agl": float(x[2] - self.cfg.lander.leg_height - self.dem.height(x[0], x[1])), "g": self.g,
                 "max_thrust": self.cfg.lander.max_thrust,
                 "min_thrust": self.cfg.lander.max_thrust * self.cfg.lander.min_throttle,
-                "sigma": self.ekf.sigma(), "imu_accel": self.last_accel.copy()}
+                "sigma": self.ekf.sigma(), "imu_accel": self.last_accel.copy(), "hover": getattr(self, "hovering", False)}
 
     # ------------------------------------------------------------------
     def step(self) -> None:
@@ -208,7 +223,7 @@ class TouchdownMission:
             self._next_ctrl += CONTROL_DT
             self._control_step()
         if self.t + 1e-9 >= self._next_perc:
-            self._next_perc += PERCEPTION_DT
+            self._next_perc += PERCEPTION_DT / 2 if self.hovering else PERCEPTION_DT   # 2 Hz scans while hovering
             if not self.fast:
                 self._perception_step()
         if self.t >= self._disturb_until:
@@ -302,6 +317,9 @@ class TouchdownMission:
         elif sup.phase == Ph.DESCENT and est["agl"] <= self.cfg.supervisor.approach_agl:
             sup.transition(Ph.LANDING_APPROACH, self.t, f"estimated AGL {est['agl']:.0f} m <= approach altitude")
             self._event("phase", "Landing approach")
+        if self.classic and self.cfg.hover_scan and sup.phase in (Ph.LANDING_APPROACH, Ph.SITE_ASSESSMENT, Ph.DIVERSION):
+            self._hover_step(est)
+            est["hover"] = self.hovering
         if sup.engine_enabled:
             self.cmd, self.ctrl_info = self.controller.compute(est, self.target, CONTROL_DT, self.cfg.lander)
             ge = getattr(self.controller, "guard_event", None)
@@ -326,6 +344,34 @@ class TouchdownMission:
             self.prediction = self.predictor.predict(np.r_[est["p"], est["v"]], target=self.target, fuel=est["fuel"],
                                                      gravity=self.g)
             self.reference = self._reference(est)
+
+    def _hover_step(self, est) -> None:
+        """Hover-and-scan over each pad: arrest the descent, hold for hover_s seconds once stable while the lidar
+        scans at 2 Hz, then commit to the final descent. A diversion during the hover restarts it over the new pad."""
+        c = self.cfg
+        key = (round(float(self.target[0]), 1), round(float(self.target[1]), 1))
+        agl = est["agl"]
+        if not self.hovering:
+            if key not in self._hovered and 25.0 < agl <= c.hover_agl:
+                self.hovering, self._hover_key, self._hover_t0, self._hover_start = True, key, None, self.t
+                self._event("hover", f"HOVER & SCAN: arresting the descent at {agl:.0f} m above the pad to scan it")
+            return
+        if key != self._hover_key:                          # diverted while hovering: scan the new pad
+            self._hovered.add(self._hover_key)
+            self._hover_key, self._hover_t0 = key, None
+            self._event("hover", f"Re-centring the hover over the new pad ({key[0]:.0f}, {key[1]:.0f})")
+        if self._hover_t0 is None and abs(est["v"][2]) < 0.6:
+            self._hover_t0 = self.t
+            self._event("hover", f"Hovering at {agl:.0f} m — lidar scanning the pad and surroundings for {c.hover_s:.0f} s")
+        done = self._hover_t0 is not None and self.t - self._hover_t0 >= c.hover_s
+        if done or self.t - self._hover_start > 30.0 or agl < 20.0:
+            self.hovering = False
+            self._hovered.add(key)
+            ss = self.site_status or {}
+            self.hover_log.append({"t0": round(self._hover_start, 1), "t1": round(self.t, 1), "pad": list(key),
+                                   "agl": round(agl, 1), "scans": self.hmap.scans, "pad_safe": ss.get("safe")})
+            self._event("hover", f"Scan complete after {self.t - self._hover_start:.1f} s: pad "
+                        + ("clear — final descent" if ss.get("safe") else "NOT clear — re-planning" if ss.get("covered") else "unsensed — continuing"))
 
     def _reference(self, est) -> list:
         p = est["p"].copy(); pts = [p.tolist()]
@@ -396,8 +442,10 @@ class TouchdownMission:
             lb = self.planner.least_bad(est, self.target, self.hmap, sigma_h)
             if lb:
                 self.target = np.array([lb["x"], lb["y"], self.dem.height(lb["x"], lb["y"])])
-            sup.transition(Ph.ABORT, self.t, "no feasible safe landing site")
-            self._event("abort", "No feasible site: abort to least-hazardous reachable point", decision_id=ev.event_id)
+            sup.transition(Ph.ABORT, self.t, "no planned diversion feasible: emergency side-step")
+            self._event("abort", ("Late hazard: emergency side-step to the least-hazardous reachable point "
+                                  f"({self.target[0]:.0f}, {self.target[1]:.0f})") if lb else
+                        "No feasible site: landing at the least-hazardous reachable point", decision_id=ev.event_id)
         self._pending_hazard_event = ev.event_id
 
     def _touchdown(self):
@@ -447,6 +495,7 @@ class TouchdownMission:
                               for ch, d in self.sensors.drift.items()},
             "false_alarms": [ch for ch, f in (self.health.first.items() if self.health else []) if ch not in self.sensors.drift],
             "ppo_guard": getattr(self, "guard_flag", None),
+            "hover_scans": getattr(self, "hover_log", []), "obstacles": getattr(self, "obstacles", []),
         }
 
     # ------------------------------------------------------------------
@@ -480,6 +529,8 @@ class TouchdownMission:
                                                               "airless": self.cfg.planet.rho0 <= 0.0},
                 "original_target": self.original_target.tolist(), "obstacles": self.obstacles,
                 "drift": {k: {**v, "bias_now": round(self.sensors.drift_bias(k, self.t), 3)} for k, v in self.sensors.drift.items()},
+                "hover": {"active": self.hovering, "stable_for": round(self.t - self._hover_t0, 1) if (self.hovering and self._hover_t0) else 0.0,
+                          "duration": self.cfg.hover_s, "log": self.hover_log, "enabled": self.classic and self.cfg.hover_scan},
                 "sensor_health": self.health.snapshot() if self.health else None}
         tx, ty = self.target[:2]
         reg = self.hmap.scan_regions[-1] if self.hmap.scan_regions else None

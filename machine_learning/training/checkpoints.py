@@ -41,4 +41,5 @@ class CheckpointManager:
         if not runs:
             return None
         runs.sort(key=lambda r: r.get("finished_at", ""))
-        return self.root / runs[-1]["run_id"] / "model.zip"
+        d = self.root / runs[-1]["run_id"]
+        return d / "best_model.zip" if (d / "best_model.zip").exists() else d / "model.zip"   # selected checkpoint wins

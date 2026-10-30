@@ -120,6 +120,83 @@ def inject_hazard(req: HazardInjection):
         return s.mission.inject_hazard(req.x, req.y, req.radius)
 
 
+def _landing_stats(rows: list[dict]) -> dict:
+    import numpy as np
+    done = [r for r in rows if r["outcome"] in ("landed", "crash")]
+    ok = [r for r in done if r["success"]]
+    err = [r["landing_error_m"] for r in ok if r.get("landing_error_m") is not None]
+    vz = [abs(r["touchdown_vz"]) for r in ok if r.get("touchdown_vz") is not None]
+    return {"runs": len(rows), "completed": len(done), "landed_safely": len(ok),
+            "success_rate": (len(ok) / len(done)) if done else None,
+            "accuracy_m": float(np.mean(err)) if err else None,          # mean miss distance from the (final) pad
+            "precision_m": float(np.std(err)) if len(err) > 1 else None,  # spread of the miss distance (repeatability)
+            "touchdown_speed": float(np.mean(vz)) if vz else None,
+            "within_2m": (sum(e <= 2.0 for e in err) / len(err)) if err else None}
+
+
+@router.get("/history")
+def history(limit: int = 100, controller: str | None = None, environment: str | None = None):
+    """Past landings (database) with per-run results and aggregate success / accuracy / precision."""
+    from sqlalchemy import select
+
+    from backend.database import models as M
+    from backend.database.session import session_scope
+    rows = []
+    try:
+        with session_scope() as s:
+            q = (select(M.SimulationRun, M.SimulationConfig).join(M.SimulationConfig, M.SimulationConfig.id == M.SimulationRun.config_id, isouter=True)
+                 .where(M.SimulationRun.module == "touchdown", M.SimulationRun.trial_id.is_(None))
+                 .order_by(M.SimulationRun.id.desc()).limit(min(limit, 500)))
+            for run, cfg in s.execute(q):
+                res, c = run.result or {}, (cfg.config if cfg else {}) or {}
+                td = res.get("touchdown") or {}
+                rows.append({"run_uid": run.run_uid, "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+                             "controller": run.controller, "environment": c.get("environment", "mars"), "seed": run.seed,
+                             "outcome": run.outcome, "success": run.success, "landing_error_m": res.get("landing_error_m"),
+                             "distance_from_original_m": res.get("distance_from_original_target_m"), "diversions": res.get("diversions"),
+                             "touchdown_vz": td.get("vertical_speed"), "fuel_used_kg": res.get("fuel_used_kg"), "mission_time_s": res.get("mission_time_s"),
+                             "sensor_faults": list((res.get("sensor_faults") or {}).keys()), "hover_scans": len(res.get("hover_scans") or []),
+                             "guard": bool(res.get("ppo_guard"))})
+    except Exception as e:  # noqa: BLE001 - history needs the database; say so instead of failing silently
+        raise HTTPException(503, f"run history needs the database: {str(e).splitlines()[0]}")
+    if controller:
+        rows = [r for r in rows if r["controller"] == controller]
+    if environment:
+        rows = [r for r in rows if r["environment"] == environment]
+    by_ctrl = {c: _landing_stats([r for r in rows if r["controller"] == c]) for c in sorted({r["controller"] for r in rows})}
+    return {"stats": _landing_stats(rows), "by_controller": by_ctrl, "runs": rows}
+
+
+@router.get("/replay/{uid}")
+def replay(uid: str, every: int = 2):
+    """Archived telemetry of a finished landing, slimmed for 3D playback, plus that run's terrain."""
+    from sqlalchemy import select
+
+    from backend.database import models as M
+    from backend.database.session import session_scope
+    from backend.telemetry.archive import read_archive
+    with session_scope() as s:
+        run = s.scalar(select(M.SimulationRun).where(M.SimulationRun.run_uid == uid))
+        if run is None:
+            raise HTTPException(404, "run not found")
+        cfg = s.get(M.SimulationConfig, run.config_id).config if run.config_id else {}
+        result = run.result or {}
+        arch = s.scalar(select(M.TelemetryArchive).where(M.TelemetryArchive.run_id == run.id))
+        apath = arch.path if arch else None
+    frames = read_archive(uid, every=max(1, every), path=apath)
+    if not frames:
+        raise HTTPException(404, "the telemetry archive for this run is missing on this machine")
+    m = TouchdownMission(TouchdownConfig.from_dict({k: v for k, v in (cfg or {}).items() if k not in ("pid", "mpc")}))
+    for o in result.get("obstacles") or []:                   # same seeded stream + same order = same rocks
+        m.inject_hazard(o["x"], o["y"], o["radius"])
+    slim = [{"t": f["t"], "phase": f["phase"], "truth": {k: f["truth"][k] for k in ("position", "velocity", "euler", "agl", "fuel", "tilt_deg")},
+             "estimate": {"position": f["estimate"]["position"], "velocity": f["estimate"]["velocity"], "agl": f["estimate"]["agl"],
+                          "sigma": f["estimate"]["sigma"][:6], "euler": f["estimate"]["euler"]},
+             "error": {"position": f["error"]["position"]}, "actuators": f["actuators"], "command": f["command"], "controller": {},
+             "target": f["target"], "predicted_touchdown": None, "innovations": {}} for f in frames]
+    return {"run_uid": uid, "result": result, "environment": (cfg or {}).get("environment", "mars"), "frames": slim, "scene": m.scene()}
+
+
 EVIDENCE_FIGS = {"fig_1_readings_vs_truth.png": "sensor_drift_dataset", "fig_2_innovation_lean.png": "sensor_drift_dataset",
                  "fig_3_cusum_detection.png": "sensor_drift_dataset", "fig_4_innovation_histogram.png": "sensor_drift_dataset",
                  "fig_5_outcomes_on_vs_off.png": "sensor_drift_dataset", "fig_domain_shift.png": "domain_shift"}

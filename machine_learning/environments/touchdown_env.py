@@ -54,11 +54,18 @@ def accel_to_action(a_cmd: np.ndarray, g: float) -> np.ndarray:
     return np.clip(np.array([a_cmd[0] / 3.0, a_cmd[1] / 3.0, (a_cmd[2] - g) / 4.0]), -1, 1).astype(np.float32)
 
 
+PAD_TOLERANCE_M = 10.0      # a touchdown farther than this from the (possibly re-planned) pad is a miss
+
+
 def terminal_reward(outcome: str | None, td: dict, err: float) -> float:
     """Graded so that every failure still points toward a landing: a softer, more upright, closer
-    crash scores better than a hard one, and timing out (hovering) is worse than any touchdown."""
+    crash scores better than a hard one, and timing out (hovering) is worse than any touchdown.
+    Precision is part of success: a safe touchdown far from the pad is a miss with an UNCAPPED distance
+    penalty - otherwise long training trades accuracy for fuel (observed: 64 m misses after 2 M steps)."""
+    if outcome == "landed" and err <= PAD_TOLERANCE_M:
+        return 100.0 - 3.0 * err - 5.0 * abs(td.get("vertical_speed", 0.0))
     if outcome == "landed":
-        return 100.0 - 1.0 * min(err, 30.0) - 5.0 * abs(td.get("vertical_speed", 0.0))
+        return 20.0 - 1.5 * err - 5.0 * abs(td.get("vertical_speed", 0.0))
     if outcome == "crash":
         vz, vh, tilt = abs(td.get("vertical_speed", 10.0)), td.get("horizontal_speed", 5.0), td.get("tilt_deg", 30.0)
         return (-20.0 - 4.0 * min(max(vz - 1.5, 0.0), 15.0) - 6.0 * min(max(vh - 1.0, 0.0), 10.0)
@@ -167,9 +174,10 @@ class TouchdownEnv(gym.Env):
             td = r.get("touchdown") or {}
             err = r.get("landing_error_m", 100.0)
             reward += terminal_reward(r.get("outcome"), td, err)
-            info = {"is_success": r.get("outcome") == "landed", "landing_error": err,
+            info = {"is_success": r.get("outcome") == "landed" and err <= PAD_TOLERANCE_M, "landing_error": err,
                     "touchdown_speed": abs(td.get("vertical_speed", np.nan)) if td else np.nan,
-                    "fuel_used": r.get("fuel_used_kg", np.nan), "terminal_reason": r.get("outcome")}
+                    "fuel_used": r.get("fuel_used_kg", np.nan),
+                    "terminal_reason": "missed pad" if r.get("outcome") == "landed" and err > PAD_TOLERANCE_M else r.get("outcome")}
         return obs, float(reward), terminated, truncated, info
 
 

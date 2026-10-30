@@ -84,8 +84,11 @@ class RoverMission:
         if cfg.ground_ops or cfg.tasks:
             # a whole sol of surface work is budgeted, not the 20 Wh slice of a single benchmark traverse
             cfg.battery_capacity_wh = max(cfg.battery_capacity_wh, 60.0)
+            cfg.max_speed = max(cfg.max_speed, 0.6)
         self.seeds = SeedManager(cfg.seed)
         self.terrain = generate(cfg.terrain)
+        if cfg.ground_ops or cfg.tasks:
+            self._thin_rocks()
         if cfg.start: self.terrain.start = tuple(cfg.start)
         if cfg.target: self.terrain.target = tuple(cfg.target)
         geom = RoverGeometry()
@@ -109,8 +112,12 @@ class RoverMission:
                                       yaw_of(orn) + rng0.normal(0, .02), 0.0, 0.0, 0.0]))
         self.map = RoverPerceivedMap(orbital_prior(self.terrain.heights, HRES, self.seeds.stream("prior")))
         self.goal = np.array(self.terrain.target, float)
+        ops = bool(cfg.ground_ops or cfg.tasks)
+        # surface operations: tight path tracking, pivot turns from 45 deg, and a faster cruise; benchmark
+        # missions keep the original tracker so experiment results stay comparable
         self.pp = PurePursuit(PurePursuitConfig(v_max=cfg.max_speed, wheel_torque=cfg.wheel_torque,
-                                                motor_peak=cfg.wheel_torque * 1.35))
+                                                motor_peak=cfg.wheel_torque * 1.35,
+                                                **({"precise": True, "lookahead": 1.4, "turn_in_place_deg": 45.0} if ops else {})))
         self.energy = RouteEnergyModel(geom.total_mass)
         self.supervisor = RoverSafetySupervisor(cfg.safety)
         self.detector = AnomalyDetector(cfg.detector)
@@ -125,7 +132,8 @@ class RoverMission:
         self.ev = Evidence()
         self.state_mgr = StateObservationManager()
         self.audit = DecisionAudit("rover")
-        self.base_weights = CostWeights()
+        # surface operations keep a tighter clearance around perceived rocks (about one 1 m cell instead of two)
+        self.base_weights = CostWeights(inflation_m=0.55) if ops else CostWeights()
         self.weights = self.base_weights
         self.response = Response()
         self.actuator_health_est = np.ones(6)
@@ -176,6 +184,21 @@ class RoverMission:
         self._plan("initial path")
 
     # ------------------------------------------------------------------
+    def _thin_rocks(self, keep_fraction: float = 0.6, big_m: float = 0.5) -> None:
+        """Surface-operations demo terrain: the benchmark terrains are dense enough that a perceived rock plus
+        the safety clearance can close every corridor (dead end -> safe halt). Keep every big boulder and every
+        rock inside a rock field (the terrain still looks and drives rocky), drop ~40 % of the small/medium
+        scattered rocks, chosen deterministically. Benchmark/experiment missions are not affected."""
+        t = self.terrain
+        kept = []
+        for k, (x, y, r, h) in enumerate(t.obstacles):
+            in_field = t.classes[t.cell(x, y)] == 3
+            u = (np.sin(k * 12.9898 + x * 78.233 + y * 37.719) * 43758.5453) % 1.0
+            if in_field or r >= big_m or u < keep_fraction:
+                kept.append((x, y, r, h))
+        t.obstacles = kept
+        t._rock_cells = None
+
     def _event(self, kind, message, **data):
         self.events.append({"t": round(self.t, 2), "kind": kind, "message": message, **data})
 
@@ -497,7 +520,8 @@ class RoverMission:
         dist = float(np.hypot(*(pos[:2] - self.goal)))
         reached = outcome == "arrived" and dist <= self.cfg.success_radius
         if self.ops is not None:
-            reached = outcome == "mission_complete" and dist <= self.cfg.success_radius
+            # parked beside the lander: the estimate is within 1.2 m of the spot, so allow navigation error on top
+            reached = outcome == "mission_complete" and dist <= self.cfg.success_radius + 1.0
         safe = self.collisions == 0 and not any(v["type"] in ("tilt", "battery") for v in self.violations)
         injected = sorted({f["fault_type"] for f in self.fault_log if f["phase"] == "injected"})
         cls_correct = [self.first_class[f]["correct"] for f in injected if f in self.first_class]
