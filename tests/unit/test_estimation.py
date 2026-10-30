@@ -46,3 +46,10 @@ def test_rover_ekf_relocalises_after_divergence():
         ekf.update_visloc([5.0, 5.0], 0.0, 0.0, t=k)
     assert ekf.relocalizations == 1
     assert np.hypot(ekf.x[0] - 5, ekf.x[1] - 5) < 1.0
+
+def test_rover_ekf_updates_gyro_and_tilt():
+    ekf = RoverEKF(np.zeros(8))
+    assert ekf.update_gyro(0.05, t=0.1) is True
+    assert ekf.update_tilt([0.02, -0.01], t=0.1) is True
+    assert "gyro" in ekf.last_nis
+    assert "tilt" in ekf.last_nis
