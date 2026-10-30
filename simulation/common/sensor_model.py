@@ -14,6 +14,17 @@ import numpy as np
 
 @dataclass
 class SensorSpec:
+    """Stochastic sensor characteristics.
+    
+    Attributes:
+        rate_hz: Sampling frequency in Hertz.
+        noise_std: Additive white Gaussian noise standard deviation (1D or per-channel vector).
+        bias: Constant initial calibration offset.
+        bias_walk_std: Brownian motion random-walk diffusion standard deviation per sqrt(second).
+        delay_s: Transport latency before measurement becomes available to estimation.
+        dropout_prob: Independent per-sample packet drop probability.
+        degradation: Multiplicative noise inflation factor (>=1.0 indicates degraded sensor health).
+    """
     rate_hz: float
     noise_std: float | list[float] = 0.0
     bias: float | list[float] = 0.0
