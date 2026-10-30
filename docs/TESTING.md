@@ -1,37 +1,22 @@
-# ASTRA Automated Testing Suite
-## Physics Verification, State Estimation, Controllers, Autonomy, and Integration
+# Testing
 
-### 1. Test Architecture & Coverage
-ASTRA maintains an extensive automated test suite located in `tests/`:
-
-```
-tests/
-├── test_touchdown_physics.py    # 6-DoF Mars dynamics, RK4 energy stability, variable fuel depletion
-├── test_rover_physics.py        # Rocker-bogie kinematics, differential tilt, Pacejka wheel slip
-├── test_ekf.py                  # 9-State & 7-State Joseph-stabilized Extended Kalman Filters
-├── test_controllers.py          # Cascade PID, Receding-Horizon MPC, Pure Pursuit, Gymnasium EDL Env
-├── test_autonomy.py             # Terrain hazard diversion, 4 fault injectors, Bayesian classifier, A*, Safety
-└── test_api_integration.py     # FastAPI REST lifecycle, WebSockets, decision logs, experiment reports
-```
-
----
-
-### 2. Running Automated Tests
 ```bash
-# Execute entire pytest suite with verbose output
-python -m pytest tests/ -v
-
-# Run individual test modules
-python -m pytest tests/test_rover_physics.py -v
-python -m pytest tests/test_ekf.py -v
-python -m pytest tests/test_controllers.py -v
-python -m pytest tests/test_autonomy.py -v
-python -m pytest tests/test_api_integration.py -v
+pytest -m "not slow"     # fast unit + integration (needs PostgreSQL database astra_test)
+pytest -m slow           # PyBullet physics, fault injectors, reproducibility, PPO pipeline
+cd frontend && npm run typecheck && npm run build
 ```
+Integration tests use `ASTRA_DATABASE_URL=…/astra_test` and re-run migrations from base each session.
 
----
+| Area | Tests |
+|---|---|
+| Physics | RK4 vs analytic oscillator; lander free fall vs ½gt²; hover throttle & ṁ = T/(Isp g₀); ω̇ = τ/I; tilted thrust; drag; rover drive distance vs ωr; contact normals vs mg; differential coupling |
+| Estimation | update shrinks P; χ² gating; constant-velocity tracking with ≥ 90 % 3σ consistency and P ≻ 0; rover relocalisation |
+| Control | PID convergence; anti-windup; MPC thrust/tilt/min-thrust constraints; allocation tilt limit; pure-pursuit turning and torque reallocation |
+| Autonomy | site assessment (flat vs boulder; noise-robust relief); diversion selects safe site, respects fuel, returns none when infeasible; full PID & MPC landings; hidden-hazard diversion with audited outcome and no teleport; illegal supervisor transition |
+| Rover autonomy | five deterministic feasible terrains; A* detour / no path; battery accounting & drain; classifier identifies each fault; ambiguous → uncertain; debouncer; safety supervisor; FSM rules; injectors identical across controllers |
+| Statistics / RL | Wilson known values; McNemar; Wilcoxon; seed pairing; PPO env contract; 1k-step train + inference pipeline |
+| Integration | status & modules; lifecycle incl. pause really pauses; persistence; CSV/PDF export; PPO 409; closed taxonomy 422; websocket; experiment held-out guard, execution, results, exports |
+| Reproducibility | same seed → identical lander state; same seed → identical rover pose; nominal ASTRA ≡ FSM |
 
-### 3. Verification Standards
-- **Numerical Tolerances:** EKF covariance eigenvalues must remain non-negative ($\lambda \ge -10^{-6}$) under floating-point roundoff.
-- **Physical Bounds:** Rover chassis roll and pitch must remain mechanically bounded ($|\theta| \le 45^\circ$); lander throttle commands must clamp strictly within $[0.15, 1.0]$.
-- **Zero Mock Policy:** Tests execute authentic numerical iterations against the simulation kernels rather than hardcoded dummy responses.
+**Last full run:** 53 passed, 0 failed (`pytest -p no:warnings -q`). Frontend typecheck and production build pass;
+all 15 routes were loaded in headless Chromium with zero console errors after fixes.

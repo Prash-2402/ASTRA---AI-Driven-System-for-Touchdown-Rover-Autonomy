@@ -1,28 +1,23 @@
-# ASTRA Deterministic Terrain Generation
-## The Five Benchmark Terrains: Development vs. Held-Out Evaluation Testbeds
+# Rover Terrain Generation
 
-### 1. Benchmark Terrain Taxonomy
-ASTRA specifies exactly five deterministic terrains to ensure reproducible comparative evaluation of autonomous navigation policies:
+Exactly five variants (`simulation/rover/terrain.py`), 60 m × 60 m, height 0.25 m, classes 1 m.
 
-| Terrain Variant | ID | Class | Key Geological Characteristics | Primary Purpose |
-| :--- | :--- | :--- | :--- | :--- |
-| **DEV_MIXED_FLAT_UNEVEN** | 1 | Development | Gentle rolling slopes ($\le 8^\circ$), sparse small boulders ($r \le 0.8\,\text{m}$) | Baseline tuning, nominal velocity verification |
-| **DEV_ROCKY_DISTRIBUTED** | 2 | Development | Dense obstacle fields (45+ boulders), rock clusters, narrow corridors | Local obstacle avoidance & LiDAR evaluation |
-| **DEV_SLOPED_NARROW_CORRIDORS** | 3 | Development | Longitudinal ridgelines, steep lateral banks ($14^\circ - 20^\circ$), bottleneck passes | Slope cost inflation & roll stability testing |
-| **EVAL_IRREGULAR_COMPLEX** | 4 | **Held-Out** | Fractal multi-frequency noise, non-uniform crater fields, asymmetric hazards | Generalization benchmark (Strictly frozen) |
-| **EVAL_EXTREME_HAZARDS** | 5 | **Held-Out** | Combined steep escarpments ($> 22^\circ$), dense rock traps, high-slip sandy depressions | Robustness under paired faults (Strictly frozen) |
+| # | Name | Split | Features |
+|---|---|---|---|
+| 1 | Mixed flat and uneven | development | 0.35 m relief, 2° slope, 35 rocks, 1 rock field |
+| 2 | Rocky distributed obstacles | development | 120 rocks, 2 rock fields |
+| 3 | Sloped narrow corridors | development | 6°/2° slope, 3 ridges with gaps |
+| 4 | Irregular complex | **held-out** | 0.6 m relief, 2 fields, 1 ridge, 18 % sand |
+| 5 | Complex alternate hazards | **held-out** | 3 fields, 2 ridges, different slope direction |
 
----
+Generation: FFT fractal relief + regional slope + Gaussian ridges with super-Gaussian gaps; class map from
+thresholded smooth noise (bedrock/regolith/sand) and circular rock fields (impassable, dense boulders);
+rocks with uniform radius ranges; start/target neighbourhoods cleared.
 
-### 2. Held-Out Evaluation Protocol
-> **Methodological Rule:** Terrains 1–3 are open for planner development, costmap gain tuning, and reward shaping. Terrains 4 and 5 are strictly held-out evaluation testbeds. Under no circumstances may planner weights or heuristics be tuned against held-out results.
+**Determinism & feasibility:** each variant has a fixed generation seed. An oracle planner using TRUE terrain
+(slope ≤ 22°, dilated rocks/fields) must find a path; otherwise the next sub-seed is used deterministically.
+This is generator validation only — no controller result is used. Variant 4 required sub-seed 1. This check
+was introduced after discovering that variants 4–5 were originally infeasible for any controller.
 
----
-
-### 3. Separation of Ground Truth vs. Perceived Terrain
-1. **Ground-Truth Map:**
-   Continuous elevation $z = f(x, y)$ and true obstacle locations $[x_i, y_i, r_i]$ are known exclusively to the physical integrator and the independent experiment evaluator.
-2. **Perceived Costmap:**
-   Constructed incrementally by the rover's perception pipeline via LiDAR scans and camera traversability classification. Hidden hazards are never leaked to the planner.
-3. **Terrain Misclassification Fault (Fault 02):**
-   Inverts a configured proportion (default $15\%$) of traversability cells in the rover's perceived costmap, simulating camera glare or shadowed crater misclassification.
+Ground truth (heights, classes, rocks) is used by physics, sensor synthesis and evaluation only. The planner
+uses the perceived map (`autonomy/planning/rover_perception.py`). Held-out terrains are never used for tuning.

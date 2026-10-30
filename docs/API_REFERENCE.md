@@ -1,46 +1,35 @@
-# ASTRA REST & WebSocket API Reference
-## Complete Specifications of Backend Endpoints and Data Contracts
+# API Reference
 
-### 1. Platform Gateway
-- `GET /api/platform/status`: Returns platform name, version, operational status, and active modules (`touchdown`, `rover`).
+Interactive OpenAPI docs: `http://localhost:8000/docs`. All bodies are validated with Pydantic (`shared/schemas/api.py`).
 
----
+## Platform
+| Method | Path | Purpose |
+|---|---|---|
+| GET | /api/platform/status | DB health, counts, sessions, controller availability, software versions |
+| GET | /api/modules | module list |
+| GET | /api/docs, /api/docs/{name} | documentation |
+| GET/POST | /api/profiles | local profiles |
 
-### 2. Touchdown Module Endpoints
-- `GET /api/touchdown/config`: Fetches active lander mass, Mars atmospheric parameters, and controller type.
-- `POST /api/touchdown/start`: Starts real-time 6-DoF descent integration.
-- `POST /api/touchdown/pause`: Pauses integration loop.
-- `POST /api/touchdown/resume`: Resumes simulation.
-- `POST /api/touchdown/reset`: Resets lander to initial entry conditions ($z = 2200\,\text{m}$).
-- `GET /api/touchdown/telemetry`: Retrieves latest authoritative telemetry frame (`TouchdownTelemetryFrame`).
-- `POST /api/touchdown/training/train_step`: Runs PPO reinforcement learning training episodes on Gymnasium EDL environment.
-- `GET /api/touchdown/training/history`: Returns training loss curves, episode lengths, and success rates.
+## Touchdown (`/api/touchdown`)
+`GET/POST /config` · `POST /start {speed}` · `/pause` · `/resume` · `/stop` · `/reset` · `/speed {speed}` ·
+`GET /telemetry` (session + snapshot + trajectories) · `GET /scene` · `GET /debrief` (409 until finished) ·
+`GET /decisions` · `POST /inject/hazard {x,y,radius}` · `/inject/disturbance {force,duration,wind}` ·
+`/inject/sensor {channel,dropout,degradation}` · `GET /controllers` · `GET/POST /training` · `GET /training/{run_id}`.
+PPO config returns 409 while no completed policy exists.
 
----
+## Rover (`/api/rover`)
+`GET/POST /config` (faults validated against the closed taxonomy → 422) · lifecycle as above · `GET /telemetry` ·
+`GET /scene` · `GET /terrain` · `GET /terrain/{variant}` · `GET /faults` · `POST /faults {fault_type,duration,params}` ·
+`GET /decisions` · `GET /debrief` · `GET /controllers`.
 
-### 3. Rover Module Endpoints
-- `GET /api/rover/config`: Fetches physical rover mass, battery capacity ($600\,\text{Wh}$), and controller mode.
-- `POST /api/rover/start`: Starts rover multi-body simulation towards science target.
-- `POST /api/rover/pause`: Pauses navigation.
-- `POST /api/rover/resume`: Resumes rover traversal.
-- `POST /api/rover/reset`: Resets rover to start waypoint and resets battery SoC to $100\%$.
-- `GET /api/rover/telemetry`: Retrieves latest authoritative rover frame (`RoverTelemetryFrame`).
-- `GET /api/rover/terrain?variant={1-5}`: Fetches 2D elevation grid and obstacle list for specified terrain.
-- `POST /api/rover/faults/inject`: Schedules an authoritative fault injection (`RoverFaultSchedule`).
+## Experiments & results
+`GET /api/experiments/conditions` · `GET/POST /api/experiments` (held-out guard → 422) · `GET /api/experiments/{id}` ·
+`POST /api/experiments/{id}/run?workers=n` (409 if another batch runs) · `POST /api/experiments/{id}/cancel` ·
+`GET /api/experiments/{id}/results` · `GET /api/experiments/{id}/export?format=csv|json|pdf` ·
+`GET /api/results/statistics?module=&held_out=` · `GET /api/results/compare?module=` · `GET /api/reports`.
 
----
+## Runs
+`GET /api/runs` · `GET /api/runs/{uid}` · `GET /api/runs/{uid}/telemetry?format=json|csv&every=k` · `GET /api/runs/{uid}/report.pdf`.
 
-### 4. Experiments & Scientific Benchmarks
-- `POST /api/experiments/run`: Launches asynchronous matched trial batch across development and held-out terrains.
-- `GET /api/experiments/status`: Reports batch run progress and active trial count.
-- `GET /api/experiments/report`: Returns complete statistical report (`ExperimentReport`) with Wilson 95% CIs and $p$-values.
-
----
-
-### 5. Decision Explainability Audit Logs
-- `GET /api/audit/decisions`: Fetches chronological decision audit events (`DecisionAuditEvent`) with state evidence, uncertainty, classification, and verified physical outcome.
-
----
-
-### 6. Real-Time WebSocket Telemetry
-- `WS /ws?client_id={id}`: Subscribes to real-time non-blocking telemetry channel ($15-20\,\text{Hz}$). Broadcasts frames tagged by module (`touchdown`, `rover`, `experiment`).
+## WebSockets
+`/ws/telemetry` (snapshots, 10 Hz) · `/ws/events` (mission events + status) · `/ws/faults` · `/ws/controller` · `/ws/experiments` (progress).

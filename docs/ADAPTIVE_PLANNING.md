@@ -1,38 +1,28 @@
-# ASTRA Adaptive Planning & Dynamic Replanning
-## Costmap Inflation, A* Graph Search, and Uncertainty-Aware Rerouting
+# Adaptive Planning (Rover)
 
-### 1. Dynamic Traversability Costmap
-ASTRA maintains an authoritative $100 \times 100$ discrete costmap grid ($1.0\,\text{m}$ resolution) in `DynamicTraversabilityCostmap`.
+## Cost map (`autonomy/planning/traversability.py`) — hard vs soft
+**Hard (impassable):** 2 m geofence border · lidar obstacles dilated by 0.9 m + 1.5·σ_pos · perceived slope > 22°
+(16° under actuator degradation) · camera-untraversable cells (unless geometry-dominant mode and lidar sees flat ground).
 
-The cost of traversing cell $(i, j)$ is dynamically modulated:
+**Soft (cost per metre):**
+`1 + w_slope (s/s_max)² + w_class·c(class) + w_unknown·unseen + w_unc·σ_pos + w_energy·(s/s_max + sand) + w_act·(1 − health)(s/10 + 2·sand)`
+Defaults: w_slope 2, w_class 1, w_unknown 0.4, w_unc 0.5, w_energy 0, w_act 0. Class cost: bedrock 0, regolith 0.25,
+sand 1.4, rock 3, unknown 0.6.
 
-$$c(i, j) = c_{\text{base}} + w_{\text{slope}} \cdot g(\theta_{\text{slope}}) + w_{\text{obstacle}} \cdot \exp\left(-\frac{d_{\text{obs}}^2}{2 \sigma_{\text{safety}}^2}\right) + w_{\text{actuator}} \cdot \Delta_{\text{degraded}}$$
+## A* (`autonomy/planning/astar.py`)
+8-connected 1 m grid, edge cost = length × mean cell cost, admissible heuristic c_min·euclidean, no corner cutting.
+Paths are smoothed by line-of-sight shortcutting only if the corridor (line + 4-neighbours) is free of hard cells
+and the worst cost is within 1.15× of the replaced segment. Planning time is logged per replan.
 
-#### Inflation Under Estimation Uncertainty
-When EKF position covariance increases (e.g. during sensor dropout):
+## Replanning triggers
+Both controllers: initial plan; remaining route crosses a newly hard cell (checked at 2 Hz, ignoring the rover's
+own neighbourhood); safety-supervisor REPLAN; no path (retry every 2 s, safe-halt after 30 s).
+ASTRA only: fault-specific replanning when the debounced classification changes (weights from the response table).
 
-$$\sigma_{\text{safety}} = \sigma_0 + 3.0 \sqrt{\text{Tr}(\mathbf{P}_{xy})}$$
+## Motion control (`autonomy/control/pure_pursuit.py`)
+Look-ahead 1.8 m (2.9 m in gentle mode), κ = 2 sin α / L_d, v = v_max·factor·max(0.25, 1 − |α|/1.2),
+pivot turn if |α| > 70°. Skid-steer: ω_L,R = (v ∓ ωB_eff/2)/r, B_eff = 1.35 m. Traction control above slip 0.35.
 
-Obstacle collision envelopes dilate automatically, forcing the planner to select wider corridors and avoid tight boulder passes.
-
----
-
-### 2. A* Graph Search & Path Smoothing
-Path search operates on an 8-connected grid with admissible Euclidean heuristic:
-
-$$h(n) = \sqrt{(x_n - x_{\text{goal}})^2 + (y_n - y_{\text{goal}})^2}$$
-
-Edge weights include diagonal motion penalties ($\sqrt{2}$) and cell traversability costs:
-$$g(n) = g(\text{parent}) + \text{dist}(\text{parent}, n) \cdot \frac{c(\text{parent}) + c(n)}{2}$$
-
-#### Path Smoothing
-Collinear and line-of-sight waypoints are pruned via Bresenham ray-casting, generating smooth, dynamically feasible trajectories for the Pure Pursuit motion controller.
-
----
-
-### 3. Fault-Triggered Dynamic Replanning
-When the Bayesian fault classifier detects a confirmed subsystem fault:
-1. **Actuator Loss (Fault 04):** Maximum allowable slope threshold is reduced from $18^\circ$ to $8^\circ$. Steep cells become impassable ($\text{cost} = \infty$).
-2. **Power Surge (Fault 03):** Edge distance weights are increased relative to slope costs, prioritizing direct paths to the target to conserve remaining Watt-hours.
-3. **Sensor Dropout (Fault 01):** Uncertainty dilation inflates obstacle boundaries by $+1.5\,\text{m}$.
-4. A* recomputes a revised collision-free path starting from current EKF coordinates $[x_k, y_k]$.
+## Energy management
+Route energy predicted with `RouteEnergyModel` (P_fixed/v + m g (C_rr + ½ sin s)/η per metre). The safety supervisor
+compares it with (SoC − reserve)·C every 2 s and requests a replan if infeasible; below the reserve it safe-halts.

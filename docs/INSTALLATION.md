@@ -1,60 +1,33 @@
-# ASTRA Installation & Deployment Guide
-## Local Development, Python Virtual Environments, and Docker Deployment
+# Installation & Running
 
-### 1. Prerequisites
-- **Operating System:** Windows 10/11, macOS, or Ubuntu 20.04/22.04 LTS.
-- **Python:** Version 3.10 to 3.13 (Global Python 3.13 supported).
-- **Node.js:** Version 18+ and `npm` 9+.
-- **Docker & Docker Compose (Optional):** For containerized multi-service deployment.
+## Requirements
+Python 3.11+ (tested 3.13), Node 20+ (tested 22), PostgreSQL 14+ (tested 16). A C++ toolchain may be needed if
+PyBullet has no wheel for your Python (it compiles from source in ~5 min).
 
----
-
-### 2. Local Setup (Frontend & Backend)
-
-#### Clone and Backend Environment Setup
+## Backend
 ```bash
-# Navigate to workspace
-cd ASTRA
-
-# Install backend dependencies
-pip install fastapi uvicorn pydantic numpy scipy torch torchvision gymnasium stable-baselines3 sqlalchemy pytest httpx
-
-# Verify backend database setup
-python -c "from backend.database.session import init_db; init_db()"
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env            # adjust ASTRA_DATABASE_URL
+createdb astra                  # or use docker compose (below)
+alembic upgrade head
+uvicorn backend.api.main:app --host 0.0.0.0 --port 8000
 ```
 
-#### Frontend Setup
+## Frontend
 ```bash
-# Navigate to frontend directory
-cd frontend
+cd frontend && npm install
+npm run dev                     # http://localhost:5173  (landing at /, application at /app)
+```
+The UI talks to `http://<host>:8000` by default; change it in **Settings** or with `VITE_API_BASE`.
 
-# Install node dependencies
-npm install
-
-# Run development server
-npm run dev
-# The landing page and research app will be available at http://localhost:5173
+## Docker
+```bash
+docker compose up --build       # postgres, api (runs migrations), web
 ```
 
-#### Launching the Backend Server
+## Batch experiments & training from the CLI
 ```bash
-# From workspace root
-uvicorn backend.core.main:app --host 0.0.0.0 --port 8000 --reload
-# REST APIs and Swagger UI available at http://localhost:8000/docs
-# WebSocket endpoint at ws://localhost:8000/ws
+python -m experiments.runners.batch <experiment_id> --workers 4
+python -m machine_learning.training.train_touchdown_ppo --timesteps 2000000 --envs 7
 ```
-
----
-
-### 3. Docker Deployment
-```bash
-# Build and run with docker compose
-docker-compose up --build -d
-
-# Check service health
-docker-compose ps
-```
-Services exposed:
-- Frontend: `http://localhost:3000`
-- Backend API: `http://localhost:8000`
-- PostgreSQL Database: `localhost:5432`
