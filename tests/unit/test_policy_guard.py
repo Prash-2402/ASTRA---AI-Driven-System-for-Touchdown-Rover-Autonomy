@@ -22,6 +22,15 @@ def test_guard_flags_sustained_out_of_envelope_input():
     assert ev and ev["z_input"] == "o1" and ev["action"] == "handed control to PID"
 
 
+def test_guard_flags_vehicle_not_responding_as_commanded():
+    g = PolicyGuard(ENV, mode="fallback")
+    ev = None
+    for k in range(200):     # commands 5 m/s^2 up, IMU measures 3.8 (weak engine)
+        a = np.array([0.0, 0.0, 5.0])
+        ev = ev or g.check(10 + k * 0.1, np.zeros(3), a, a, agl=500, dt=0.1, a_meas=np.array([0.0, 0.0, 3.8]))
+    assert ev and "does not respond as commanded" in " ".join(ev["reasons"])
+
+
 def test_guard_flags_sustained_disagreement_with_reference():
     g = PolicyGuard(ENV, mode="monitor")
     ev = None

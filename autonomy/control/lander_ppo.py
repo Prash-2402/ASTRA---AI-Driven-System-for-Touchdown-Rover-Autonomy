@@ -10,6 +10,7 @@ from autonomy.control.lander_pid import LanderPIDController
 from autonomy.safety.policy_guard import PolicyGuard, load_envelope
 from machine_learning.environments.touchdown_env import POLICY_DT, action_to_accel, build_observation
 from machine_learning.training.checkpoints import CheckpointManager
+from simulation.common.math3d import euler_to_rotmat
 
 
 class NoTrainedPolicyError(RuntimeError):
@@ -47,7 +48,9 @@ class LanderPPOController:
             a_ppo = action_to_accel(action, est["g"])
             a_pid, _ = self.shadow.guidance(est, target, POLICY_DT)
             if self.guard:
-                ev = self.guard.check(self.t, obs, a_ppo, a_pid, est["agl"], POLICY_DT)
+                # IMU specific force rotated to the world frame = the non-gravitational acceleration actually achieved
+                a_meas = euler_to_rotmat(est["euler"]) @ np.asarray(est["imu_accel"], float)
+                ev = self.guard.check(self.t, obs, a_ppo, a_pid, est["agl"], POLICY_DT, a_meas=a_meas)
                 if ev:
                     self.guard_event = ev
                     if self.guard.mode == "fallback":

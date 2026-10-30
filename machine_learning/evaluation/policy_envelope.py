@@ -21,21 +21,36 @@ def _episode(args):
     from stable_baselines3 import PPO
 
     from machine_learning.environments.touchdown_env import TouchdownEnv
+    from autonomy.control.lander_pid import LanderPIDController
+    from autonomy.safety.policy_guard import GuardConfig
+    from machine_learning.environments.touchdown_env import POLICY_DT, action_to_accel
     model = PPO.load(model_path, device="cpu")
-    env = TouchdownEnv(seed=seed)
+    jumps = seed % 2 == 0           # inputs: with and without target jumps; disagreement: normal flight only
+    env = TouchdownEnv(seed=seed, switch_prob=0.3 if jumps else 0.0)
+    pid, gc = LanderPIDController(), GuardConfig()
     obs, _ = env.reset(seed=seed)
-    out, done = [obs], False
+    out, done, ewma, peak, t = [obs], False, 0.0, 0.0, 0.0
     while not done:
         a, _ = model.predict(obs, deterministic=True)
+        est = env.mission.estimate()
+        a_pid, _ = pid.guidance(est, env.mission.target, POLICY_DT)
+        ewma = (1 - gc.disagree_alpha) * ewma + gc.disagree_alpha * float(np.linalg.norm(action_to_accel(a, est["g"]) - a_pid))
+        t += POLICY_DT
+        if t > gc.warmup_s and est["agl"] > gc.min_agl:
+            peak = max(peak, ewma)
         obs, _, term, trunc, _ = env.step(a)
         out.append(obs); done = term or trunc
-    return np.array(out)
+    return np.array(out), (None if jumps else peak)
 
 
 def build(model_path: str, episodes: int = 24, workers: int = 6) -> dict:
     with Pool(workers) as p:
-        data = np.concatenate(p.map(_episode, [(model_path, 500_000 + k) for k in range(episodes)]))
+        res = p.map(_episode, [(model_path, 500_000 + k) for k in range(episodes)])
+    data = np.concatenate([r[0] for r in res])
+    peaks = [r[1] for r in res if r[1] is not None]
     env = {"names": NAMES, "mean": data.mean(0).tolist(), "std": data.std(0).tolist(),
+           # how far this policy normally strays from the PID reference in its own world
+           "disagreement_max": float(np.max(peaks)), "disagreement_p90": float(np.percentile(peaks, 90)),
            "p01": np.percentile(data, 1, axis=0).tolist(), "p99": np.percentile(data, 99, axis=0).tolist(),
            "samples": int(len(data)), "episodes": episodes}
     (Path(model_path).parent / "envelope.json").write_text(json.dumps(env, indent=2))

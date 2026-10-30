@@ -169,7 +169,7 @@ export default function TouchdownPage({ env, diversion, features }: { env: "mars
             {f?.controller?.mpc && <div className="mt-4 text-[11px] text-ink2 num">MPC: {f.controller.mpc.success ? "converged" : "not converged"} · {fmt(f.controller.mpc.solve_ms, 1)} ms · it {f.controller.mpc.iterations} · N={f.controller.mpc.horizon}/Nc={f.controller.mpc.control_horizon}</div>}
             {f?.controller?.ppo && <div className="mt-4 text-[11px] text-ink2 num space-y-0.5">
               <div>PPO checkpoint {f.controller.ppo.checkpoint} · in control: <b className={f.controller.ppo.in_control === "pid" ? "text-warning" : "text-ink"}>{String(f.controller.ppo.in_control).toUpperCase()}</b></div>
-              {f.controller.ppo.guard && <div>guard ({f.controller.ppo.guard.mode}): input z {fmt(f.controller.ppo.guard.z_max, 1)}σ {f.controller.ppo.guard.z_input ? `(${f.controller.ppo.guard.z_input})` : ""} · disagreement vs PID {fmt(f.controller.ppo.guard.disagreement, 2)} m/s²</div>}</div>}
+              {f.controller.ppo.guard && <div>guard ({f.controller.ppo.guard.mode}): input z {fmt(f.controller.ppo.guard.z_max, 1)}σ {f.controller.ppo.guard.z_input ? `(${f.controller.ppo.guard.z_input})` : ""} · disagreement vs PID {fmt(f.controller.ppo.guard.disagreement, 2)} m/s² · dynamics residual {fmt(f.controller.ppo.guard.dynamics_residual, 2)} m/s²</div>}</div>}
           </Panel>
           <Panel eyebrow={airless ? "Environment · airless body" : "Environment · live"} title="Wind, gusts & dust">
             {airless ? <p className="text-[12px] text-ink2">The Moon has no atmosphere: no wind, no gusts and no dust storms act on the lander. Gravity 1.625 m/s².</p> : <>
