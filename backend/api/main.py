@@ -25,9 +25,19 @@ def _np_default(o):
     return str(o)
 
 
+TAGS_METADATA = [
+    {"name": "platform", "description": "Platform status, system diagnostics, and hardware telemetry."},
+    {"name": "touchdown", "description": "Mars powered-descent 6-DOF simulation, EKF estimation, and guidance."},
+    {"name": "rover", "description": "Mars rover surface navigation, terrain perception, and adaptive fault response."},
+    {"name": "moon", "description": "Lunar module landing simulation with Apollo-style P64/P66 guidance."},
+    {"name": "experiments", "description": "Matched-seed batch experiment execution and statistical hypothesis tests."},
+]
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="ASTRA API", version=VERSION, default_response_class=NumpyJSONResponse,
-                  description="AI-Driven System for Touchdown & Rover Autonomy")
+                  description="AI-Driven System for Touchdown & Rover Autonomy",
+                  openapi_tags=TAGS_METADATA)
     app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins + ["*"], allow_methods=["*"], allow_headers=["*"])
     for r in (routes_platform.router, routes_touchdown.router, routes_runs.router, websocket.router):
         app.include_router(r)
