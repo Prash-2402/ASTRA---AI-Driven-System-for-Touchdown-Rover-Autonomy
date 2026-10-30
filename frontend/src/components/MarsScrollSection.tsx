@@ -328,7 +328,7 @@ export const MarsScrollSection: React.FC<MarsScrollSectionProps> = ({ onEnterApp
           </div>
         </div>
 
-        {/* Scroll Progress & Sequence Indicator */}
+        {/* Scroll Progress Indicator */}
         <div
           className="hero-scroll-indicator"
           style={{ opacity: Math.max(0, 1 - progress * 3) }}
@@ -342,14 +342,6 @@ export const MarsScrollSection: React.FC<MarsScrollSectionProps> = ({ onEnterApp
             />
           </div>
           <span>Scroll to explore</span>
-        </div>
-
-        {/* Cinematic telemetry stamp on canvas */}
-        <div className="mars-telemetry-stamp">
-          <div className="stamp-line">ASTRA EDL OPTICAL SEQUENCE</div>
-          <div className="stamp-coords font-mono">
-            FRAME: {Math.round(progress * (TOTAL_FRAMES - 1)).toString().padStart(4, '0')} / {TOTAL_FRAMES}
-          </div>
         </div>
       </div>
     </section>

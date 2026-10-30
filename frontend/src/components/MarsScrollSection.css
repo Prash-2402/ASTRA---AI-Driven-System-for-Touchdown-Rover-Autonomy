@@ -275,33 +275,6 @@
   writing-mode: vertical-rl;
 }
 
-/* ─── Cinematic Telemetry Stamp ────────────────────────────── */
-.mars-telemetry-stamp {
-  position: absolute;
-  bottom: 36px;
-  right: 48px;
-  z-index: 25;
-  pointer-events: none;
-  text-align: right;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.stamp-line {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--astra-sage);
-}
-
-.stamp-coords {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  color: var(--astra-cream);
-}
-
 /* ─── Responsive Media Queries ──────────────────────────────── */
 @media (max-width: 900px) {
   .mars-scroll-section,
@@ -323,10 +296,6 @@
   }
   .hero-scroll-indicator {
     left: 24px;
-    bottom: 24px;
-  }
-  .mars-telemetry-stamp {
-    right: 24px;
     bottom: 24px;
   }
 }

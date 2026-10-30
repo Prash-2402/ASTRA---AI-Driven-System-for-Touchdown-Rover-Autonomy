@@ -73,6 +73,22 @@
   font-family: var(--font-sans);
 }
 
+.sidebar-brand-img {
+  height: 28px;
+  width: auto;
+  max-width: 130px;
+  object-fit: contain;
+  display: block;
+}
+
+.sidebar-brand-img-collapsed {
+  height: 24px;
+  width: auto;
+  max-width: 32px;
+  object-fit: contain;
+  display: block;
+}
+
 .collapse-btn {
   width: 26px;
   height: 26px;

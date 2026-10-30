@@ -127,10 +127,9 @@ const LandingPage: React.FC = () => {
 
       {/* ── Top Navigation ── */}
       <nav className={`landing-nav ${navVisible ? 'nav-visible' : 'nav-hidden'}`}>
-        <div className="nav-logo">
-          <span className="nav-logo-mark">✦</span>
-          <span className="nav-logo-text">ASTRA</span>
-        </div>
+        <a href="#overview" className="nav-logo-link" aria-label="ASTRA Homepage">
+          <img src="/LOGO.png" alt="ASTRA" className="nav-logo-img" />
+        </a>
         <div className="nav-links">
           {navLinks.map(l => (
             <a key={l} href={`#${l.toLowerCase().replace(' ', '-')}`} className="nav-link">{l}</a>
@@ -429,10 +428,9 @@ const LandingPage: React.FC = () => {
         <div className="container">
           <div className="footer-top">
             <div className="footer-brand">
-              <div className="footer-logo">
-                <span className="nav-logo-mark">✦</span>
-                <span>ASTRA</span>
-              </div>
+              <a href="#overview" className="footer-logo-link" aria-label="ASTRA Homepage">
+                <img src="/LOGO.png" alt="ASTRA" className="footer-logo-img" />
+              </a>
               <p className="footer-tagline">
                 AI-Driven System for Touchdown &amp; Rover Autonomy.
               </p>

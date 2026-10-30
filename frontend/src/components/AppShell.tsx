@@ -54,14 +54,13 @@ const AppShell: React.FC = () => {
       <aside className="sidebar">
         <div className="sidebar-header">
           {!collapsed && (
-            <button className="sidebar-brand" onClick={() => navigate('/')}>
-              <span className="brand-mark">✦</span>
-              <span className="brand-name">ASTRA</span>
+            <button className="sidebar-brand" onClick={() => navigate('/')} title="ASTRA Homepage">
+              <img src="/LOGO.png" alt="ASTRA" className="sidebar-brand-img" />
             </button>
           )}
           {collapsed && (
-            <button className="sidebar-brand sidebar-brand--collapsed" onClick={() => navigate('/')}>
-              <span className="brand-mark">✦</span>
+            <button className="sidebar-brand sidebar-brand--collapsed" onClick={() => navigate('/')} title="ASTRA Homepage">
+              <img src="/LOGO.png" alt="ASTRA" className="sidebar-brand-img-collapsed" />
             </button>
           )}
           <button className="collapse-btn" onClick={() => setCollapsed(!collapsed)} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>

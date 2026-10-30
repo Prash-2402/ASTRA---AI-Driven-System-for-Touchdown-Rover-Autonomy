@@ -74,6 +74,24 @@
 .nav-visible { transform: translateY(0); opacity: 1; }
 .nav-hidden { transform: translateY(-100%); opacity: 0; }
 
+.nav-logo-link {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  flex-shrink: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.nav-logo-link:hover {
+  opacity: 0.88;
+}
+.nav-logo-img {
+  height: 34px;
+  width: auto;
+  max-width: 150px;
+  object-fit: contain;
+  display: block;
+}
+
 .nav-logo {
   display: flex;
   align-items: center;
@@ -606,6 +624,24 @@
 }
 
 .footer-brand { max-width: 280px; }
+
+.footer-logo-link {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  margin-bottom: 14px;
+  transition: opacity 0.2s ease;
+}
+.footer-logo-link:hover {
+  opacity: 0.88;
+}
+.footer-logo-img {
+  height: 32px;
+  width: auto;
+  max-width: 140px;
+  object-fit: contain;
+  display: block;
+}
 
 .footer-logo {
   display: flex;
