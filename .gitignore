@@ -17,6 +17,7 @@ machine_learning/checkpoints/*
 !machine_learning/checkpoints/.gitkeep
 # Env
 .env
+*.db
 *.log
 .DS_Store
 *.zip

@@ -8,11 +8,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 VERSION = "0.1.0"
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(ROOT / ".env")
+except ImportError:
+    pass
+
 
 @dataclass
 class Settings:
     database_url: str = field(default_factory=lambda: os.environ.get(
-        "ASTRA_DATABASE_URL", "postgresql+psycopg2://astra:astra@localhost:5432/astra"))
+        "ASTRA_DATABASE_URL", f"sqlite:///{ROOT / 'astra.db'}"))
     data_dir: Path = field(default_factory=lambda: Path(os.environ.get("ASTRA_DATA_DIR", ROOT / "data")))
     cors_origins: list[str] = field(default_factory=lambda: os.environ.get(
         "ASTRA_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173").split(","))

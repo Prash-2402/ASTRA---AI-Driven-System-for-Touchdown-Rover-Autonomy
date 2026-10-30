@@ -13,7 +13,11 @@ _Session = None
 
 def init_engine(url: str | None = None):
     global _engine, _Session
-    _engine = create_engine(url or settings.database_url, pool_pre_ping=True, future=True)
+    target_url = url or settings.database_url
+    connect_args = {}
+    if "sqlite" in target_url:
+        connect_args["check_same_thread"] = False
+    _engine = create_engine(target_url, pool_pre_ping=True, future=True, connect_args=connect_args)
     _Session = sessionmaker(bind=_engine, expire_on_commit=False)
     return _engine
 
@@ -42,7 +46,10 @@ def session_scope():
 def db_status() -> dict:
     try:
         with engine().connect() as c:
-            v = c.execute(text("select version()")).scalar()
+            try:
+                v = c.execute(text("select version()")).scalar()
+            except Exception:
+                v = f"SQLite {c.execute(text('select sqlite_version()')).scalar()}"
             try:
                 rev = c.execute(text("select version_num from alembic_version")).scalar()
             except Exception:  # noqa: BLE001
