@@ -24,3 +24,13 @@ allocation, initial SoC 0.8, hard reserve 0.15.
 
 Rover nominal parameters: 64 kg, wheel radius 0.16 m, torque limit 8 N m/wheel (~2–3× the demand of 15° slopes
 in sand), max speed 0.4 m/s, skid steering (no steerable wheels — a simplification).
+
+## Crater-floor landing (sky crane) — `simulation/rover/skycrane.py`
+Before the traverse, the rover is delivered to its start point by a computed sky-crane sequence:
+powered descent (PD on a velocity profile, lateral nulling) → sky crane at 21 m (constant 0.75 m/s, bridles
+paid out at 0.75 m/s to 7.5 m) → touchdown (tension loss) → bridle cut (0.7 s later) → flyaway (45° pitch, full
+throttle). The rover swings as a pendulum with a moving, accelerating pivot and varying length:
+`θ̈ = −((g + a_pz) sin θ + a_px cos θ)/L − 2 L̇ θ̇ / L` (two planes), semi-implicit Euler at 200 Hz.
+Mars 2020 mass ratios are scaled to the configured rover mass so the landed vehicle is the one PyBullet then drives.
+Results on all five terrains: touchdown 0.75 m/s, < 1 cm horizontal error, < 0.4° swing.
+The crater walls drawn around the 60 m arena are context terrain (visual only, labelled in the UI).

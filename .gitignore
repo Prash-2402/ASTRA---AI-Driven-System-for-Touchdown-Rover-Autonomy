@@ -17,8 +17,9 @@ machine_learning/checkpoints/*
 !machine_learning/checkpoints/.gitkeep
 # Env
 .env
-*.db
 *.log
 .DS_Store
+ASTRA_full.bundle
 *.zip
 *.tsbuildinfo
+NEW Changes/

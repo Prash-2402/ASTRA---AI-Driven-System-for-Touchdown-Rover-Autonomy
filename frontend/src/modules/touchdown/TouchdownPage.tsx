@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { ErrorVsSigma, Series } from "../../charts/Series";
 import SimControls from "../../components/SimControls";
+import { CamSwitch, Gauge, PhaseTimeline, Toggle } from "../../components/SimViewport";
+import type { CamMode } from "../../visualization/lib/scene";
 import { DecisionLog, Empty, ErrorNote, EventTimeline, Field, fmt, PageHeader, Panel, Stat } from "../../components/ui";
 import { usePoll } from "../../hooks/useChannel";
 import { api } from "../../services/api";
@@ -8,13 +10,27 @@ import { useSim } from "../../stores/simulation";
 
 const TouchdownScene = lazy(() => import("../../visualization/TouchdownScene"));
 const deg = (r: number) => (r * 180) / Math.PI;
+const PHASES = ["ENTRY", "DESCENT", "LANDING APPROACH", "SITE ASSESSMENT", "DIVERSION", "TOUCHDOWN", "MISSION COMPLETE"];
+const EXPLAIN: Record<string, string> = {
+  ENTRY: "Unpowered coast: the main engine is off; RCS thrusters hold the lander vertical while it falls through the thin Martian atmosphere. The relay orbiter overhead receives telemetry.",
+  DESCENT: "Powered descent: the main engine fires and the guidance law (PID, MPC or PPO) commands an acceleration. The attitude loop tilts the lander so its thrust points along that command; lateral thrusters trim the remainder.",
+  "LANDING APPROACH": "Approach toward the target. The EKF fuses IMU, radar altimeter, Doppler velocimeter and terrain-relative navigation; the dashed amber curve is the predicted touchdown trajectory from the estimated state.",
+  "SITE ASSESSMENT": "Close-range lidar (blue cone) maps slopes and boulders the orbital map could not resolve. The target footprint, plus a margin from position uncertainty, is checked against slope, rock and roughness limits.",
+  DIVERSION: "The target was assessed unsafe. Candidate sites were scored (colour gradient: green = best) and checked for fuel and control authority; the lander physically flies to the selected site.",
+  TOUCHDOWN: "Footpad contact. The vertical and horizontal speeds, tilt, slope and rock clearance at the real contact point decide success.",
+  "MISSION COMPLETE": "Landed within all limits. The decision audit records the evidence behind every diversion and its actual outcome.",
+  FAILED: "A touchdown limit was violated — see the debrief.", ABORT: "No feasible safe site: the lander set down at the least-hazardous reachable point.",
+};
 
 export default function TouchdownPage() {
   const live = useSim((s) => s.touchdown);
   const hist = useSim((s) => s.tdHistory);
   const ingest = useSim((s) => s.ingest);
   const [scene, setScene] = useState<any>(null);
-  const [follow, setFollow] = useState(true);
+  const [cam, setCam] = useState<CamMode>("chase");
+  const [labels, setLabels] = useState(false);
+  const [overlay, setOverlay] = useState<"none" | "slope" | "hazard">("none");
+  const [paths, setPaths] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [cfg, setCfg] = useState({ seed: 42, controller: "pid", hazard: false, alt: 2900, wind: 4 });
   const avail = usePoll(() => api.get("/api/touchdown/controllers"), 0);
@@ -26,7 +42,7 @@ export default function TouchdownPage() {
   useEffect(() => { api.get("/api/touchdown/config").then((c) => { const a = c.active; if (a) setCfg((x) => ({ ...x, seed: a.seed ?? x.seed, controller: a.controller ?? x.controller,
     hazard: !!a.terrain?.hazard_at_target, alt: a.initial_position?.[2] ?? x.alt })); }).catch(() => {}); }, [live?.run_uid]);
   useEffect(() => { if (live?.run_uid) api.get("/api/touchdown/scene").then(setScene).catch(() => {}); }, [live?.run_uid]);
-  useEffect(() => { if (live?.diversions) api.get("/api/touchdown/scene").then(setScene).catch(() => {}); }, [live?.diversions]);
+  useEffect(() => { if (live?.diversions || overlay === "hazard") api.get("/api/touchdown/scene").then(setScene).catch(() => {}); }, [live?.diversions, overlay, live?.phase]);
 
   const configure = async () => {
     setErr(null);
@@ -41,33 +57,43 @@ export default function TouchdownPage() {
   const f = live?.frame;
   return (
     <div>
-      <PageHeader eyebrow="Module 1 · Entry, descent & landing" title={<>ASTRA <em>Touchdown</em></>}>
+      <PageHeader eyebrow="Mars · entry, descent & autonomous landing" title={<>Touchdown <em>Simulation</em></>}>
         <SimControls module="touchdown" status={live?.status} speed={live?.speed} />
       </PageHeader>
       <ErrorNote error={err || (live as any)?.error} />
+      <div className="panel px-5 py-3.5 mb-5"><PhaseTimeline phases={live?.phase === "FAILED" || live?.phase === "ABORT" ? [...PHASES.slice(0, 6), live.phase] : PHASES} current={live?.phase} failed={live?.phase === "FAILED"} /></div>
       <div className="grid xl:grid-cols-[1fr_340px] gap-5">
         <div className="space-y-5 min-w-0">
-          <div className="panel overflow-hidden relative" style={{ height: "62vh", minHeight: 420 }}>
-            <Suspense fallback={<div className="p-6 eyebrow">Loading 3D…</div>}>
-              <TouchdownScene snap={live} scene={scene} decisions={decisions.data || []} follow={follow} />
-            </Suspense>
-            <div className="absolute top-4 left-4 flex flex-wrap gap-2">
-              <span className="chip !bg-[rgba(255,253,244,.92)]">{live?.phase ?? "—"}</span>
-              <span className="chip !bg-[rgba(255,253,244,.92)]">t = {fmt(live?.t, 1)} s</span>
-              <button className="chip !bg-[rgba(255,253,244,.92)] hover:!bg-sage" onClick={() => setFollow(!follow)}>{follow ? "following lander" : "free camera"}</button>
+          <div className="panel overflow-hidden relative" style={{ height: "66vh", minHeight: 460 }}>
+            {scene ? <Suspense fallback={<div className="p-6 eyebrow">Loading Mars terrain…</div>}>
+              <TouchdownScene snap={live} scene={scene} decisions={decisions.data || []} cam={cam} labels={labels} overlay={overlay} showPaths={paths} /></Suspense>
+              : <div className="h-full grid place-items-center eyebrow">Loading Mars terrain…</div>}
+            <div className="absolute top-3 left-3 right-3 flex flex-wrap justify-between gap-2">
+              <CamSwitch value={cam} onChange={setCam} modes={[["chase", "Chase"], ["observer", "Ground observer"], ["orbiter", "From orbit"], ["overhead", "Overhead"], ["cinematic", "Orbit"], ["free", "Free"]]} />
+              <div className="flex flex-wrap gap-2">
+                <Toggle on={labels} onClick={() => setLabels(!labels)}>Components</Toggle>
+                <Toggle on={paths} onClick={() => setPaths(!paths)}>Trajectories</Toggle>
+                <div className="seg hud !p-[3px]">{([["none", "No overlay"], ["slope", "Slope gradient"], ["hazard", "Lidar hazard map"]] as const).map(([o, l]) =>
+                  <button key={o} className={overlay === o ? "on" : ""} onClick={() => setOverlay(o)}>{l}</button>)}</div>
+              </div>
             </div>
-            <div className="absolute bottom-3 left-4 right-4 flex flex-wrap gap-3 text-[10.5px] text-ink2 rounded-[12px] px-3 py-2" style={{ background: "rgba(255,253,244,.9)" }}>
-              <Legend c="#26372D" t="actual (truth)" /><Legend c="#7798A3" t="estimated / MPC horizon" /><Legend c="#779477" t="desired profile" />
-              <Legend c="#D69B4D" t="predicted → touchdown" /><Legend c="#648C65" t="feasible alt. site" /><Legend c="#C76C64" t="infeasible site" />
-              <span className="text-muted">Lander drawn 4× scale for visibility.</span>
-            </div>
+            {f && <div className="absolute bottom-3 left-3 hud p-3 w-[240px] space-y-2.5">
+              <Gauge label="Altitude AGL" value={f.truth.agl} max={3000} unit="m" fmt={(v) => v.toFixed(v < 100 ? 1 : 0)} tone="var(--info)" />
+              <Gauge label="Vertical speed" value={-f.truth.velocity[2]} max={100} unit="m/s" fmt={(v) => v.toFixed(2)} />
+              <Gauge label="Throttle" value={f.actuators.throttle * 100} max={100} unit="%" fmt={(v) => v.toFixed(0)} tone="var(--warning)" />
+              <Gauge label="Fuel" value={f.truth.fuel} max={450} unit="kg" fmt={(v) => v.toFixed(0)} tone={f.truth.fuel < 60 ? "var(--danger)" : "var(--success)"} />
+              <Gauge label="Tilt" value={f.truth.tilt_deg} max={30} unit="°" />
+            </div>}
+            {live?.phase && <div className="absolute bottom-3 right-3 hud p-3 max-w-[360px] text-[12px] leading-relaxed text-[var(--ink-secondary)] hidden md:block">
+              <div className="eyebrow !text-[9.5px] mb-1 text-[var(--primary)]">What is happening · {live.phase}</div>{EXPLAIN[live.phase] ?? ""}
+              <div className="mt-2 text-[10.5px] text-[var(--muted)]">Relay orbiter drawn far closer than its ~300 km orbit.</div></div>}
           </div>
           {!f ? <Empty title="No descent configured">Configure a mission on the right and press Start.</Empty> : (
             <div className="grid md:grid-cols-2 gap-5">
               <Panel eyebrow="Truth vs estimate" title="Altitude & vertical speed"><Series data={hist} lines={[{ key: "agl", name: "AGL truth [m]" }, { key: "agl_est", name: "AGL EKF [m]", dashed: true }]} /></Panel>
               <Panel eyebrow="Estimator" title="Position error vs EKF ±2σ (east axis)"><ErrorVsSigma data={hist} err="err_x" sig="sig_x" /></Panel>
-              <Panel eyebrow="Propulsion" title="Throttle & tilt"><Series data={hist} lines={[{ key: "throttle", name: "throttle [0-1]" }, { key: "tilt", name: "tilt [deg]", color: "#D69B4D" }]} /></Panel>
-              <Panel eyebrow="Resources" title="Fuel & vertical velocity"><Series data={hist} lines={[{ key: "fuel", name: "fuel [kg]" }, { key: "vz", name: "vz truth [m/s]", color: "#7798A3" }, { key: "vz_est", name: "vz EKF", dashed: true, color: "#C76C64" }]} /></Panel>
+              <Panel eyebrow="Propulsion" title="Throttle & tilt"><Series data={hist} lines={[{ key: "throttle", name: "throttle [0-1]" }, { key: "tilt", name: "tilt [deg]", color: "#F08C00" }]} /></Panel>
+              <Panel eyebrow="Resources" title="Fuel & vertical velocity"><Series data={hist} lines={[{ key: "fuel", name: "fuel [kg]" }, { key: "vz", name: "vz truth [m/s]", color: "#12B886" }, { key: "vz_est", name: "vz EKF", dashed: true, color: "#E03131" }]} /></Panel>
             </div>
           )}
           <Panel eyebrow="Explainability" title="Decision audit log"><DecisionLog decisions={decisions.data || []} /></Panel>
@@ -138,4 +164,4 @@ export default function TouchdownPage() {
   );
 }
 
-const Legend = ({ c, t }: { c: string; t: string }) => <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-[3px] rounded" style={{ background: c }} />{t}</span>;
+

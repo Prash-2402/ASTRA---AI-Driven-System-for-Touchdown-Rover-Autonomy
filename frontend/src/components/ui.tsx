@@ -3,8 +3,8 @@ import type { DecisionEvent, MissionEvent } from "../services/types";
 
 export function PageHeader({ eyebrow, title, children }: { eyebrow: string; title: ReactNode; children?: ReactNode }) {
   return (
-    <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-7">
-      <div><div className="eyebrow">{eyebrow}</div><h1 className="h-display text-[42px] md:text-[54px] text-ink mt-1">{title}</h1></div>
+    <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4 mb-6">
+      <div className="min-w-0"><div className="eyebrow">{eyebrow}</div><h1 className="h-display text-[clamp(28px,2.7vw,40px)] text-ink mt-1">{title}</h1></div>
       {children && <div className="flex flex-wrap gap-2">{children}</div>}
     </div>
   );
@@ -38,7 +38,7 @@ export function Stat({ label, value, unit, sub, tone }: { label: string; value: 
 export function StatusPill({ status }: { status?: string | null }) {
   const map: Record<string, string> = { running: "var(--success)", paused: "var(--warning)", completed: "var(--info)", error: "var(--danger)",
     failed: "var(--danger)", stopped: "var(--muted)", idle: "var(--muted)", created: "var(--muted)", cancelled: "var(--muted)",
-    completed_with_errors: "var(--warning)" };
+    completed_with_errors: "var(--warning)", interrupted: "var(--warning)" };
   const s = status || "—";
   return <span className="chip"><span className="dot" style={{ background: map[s] || "var(--muted)" }} />{s}</span>;
 }

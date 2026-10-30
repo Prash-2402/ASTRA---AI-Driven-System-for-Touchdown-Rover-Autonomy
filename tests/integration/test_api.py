@@ -82,3 +82,23 @@ def test_experiment_creation_held_out_guard_and_execution(client):
     assert res["complete"] and len(res["table"]) == 2 and res["paired"]
     assert client.get(f"/api/experiments/{e['id']}/export?format=csv").text.startswith("trial_id")
     assert client.get(f"/api/experiments/{e['id']}/export?format=pdf").content[:4] == b"%PDF"
+
+
+def test_rover_interactive_lifecycle_landing_and_costmap(client):
+    client.post("/api/rover/config", json={"terrain": 1, "controller": "astra", "duration": 30})
+    landing = client.get("/api/rover/landing").json()
+    assert abs(abs(landing["touchdown"]["vertical_speed"]) - 0.75) < 0.05
+    client.post("/api/rover/start", json={"speed": 0})
+    s = wait_status(client, "rover", {"completed", "error"}, timeout=180)
+    assert s["status"] == "completed", s.get("error")
+    cm = client.get("/api/rover/costmap").json()
+    assert len(cm["cost"]) == 60 and len(cm["slope"]) == 60
+
+
+def test_moon_landing_lifecycle(client):
+    client.post("/api/moon/config", json={"seed": 11})
+    client.post("/api/moon/start", json={"speed": 0})
+    s = wait_status(client, "moon", {"completed", "error"}, timeout=120)
+    assert s["status"] == "completed", s.get("error")
+    assert s["result"]["outcome"] == "landed"
+    assert client.get("/api/moon/decisions").json()

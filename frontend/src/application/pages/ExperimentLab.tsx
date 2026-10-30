@@ -5,7 +5,7 @@ import { api } from "../../services/api";
 
 export function ResultsTable({ rows }: { rows: any[] }) {
   return (
-    <div className="overflow-x-auto scroll-thin"><table className="table"><thead><tr><th>terrain</th><th>condition</th><th>controller</th><th>n</th><th>completion</th><th>95 % Wilson CI</th><th>time to completion [s]</th><th>energy [Wh]</th><th>violations</th><th>detect delay [s]</th><th>class. acc.</th></tr></thead>
+    <div className="overflow-x-auto scroll-thin"><table className="table nowrap"><thead><tr><th>terrain</th><th>condition</th><th>controller</th><th>n</th><th>completion</th><th>95 % Wilson CI</th><th>time to completion [s]</th><th>energy [Wh]</th><th>violations</th><th>detect delay [s]</th><th>class. acc.</th></tr></thead>
       <tbody>{rows.map((r, i) => <tr key={i}><td className="num">{r.terrain}</td><td>{r.condition}</td><td className="font-medium">{r.controller}</td><td className="num">{r.n}</td>
         <td className="num">{r.successes}/{r.n} = {fmt(r.completion_rate, 2)}</td><td className="num">[{fmt(r.ci_low, 2)}, {fmt(r.ci_high, 2)}]</td>
         <td className="num">{r.metrics.time_to_completion_s?.n ? `${fmt(r.metrics.time_to_completion_s.mean, 0)} ± ${fmt(r.metrics.time_to_completion_s.sd, 0)} (n=${r.metrics.time_to_completion_s.n})` : r.metrics.mission_time_s ? fmt(r.metrics.mission_time_s.mean, 0) : "—"}</td>
@@ -17,7 +17,7 @@ export function ResultsTable({ rows }: { rows: any[] }) {
 export function PairedTable({ rows }: { rows: any[] }) {
   if (!rows?.length) return null;
   return (
-    <div className="overflow-x-auto scroll-thin"><table className="table"><thead><tr><th>terrain</th><th>condition</th><th>metric</th><th>pairs</th><th>mean diff (ASTRA − FSM)</th><th>test</th><th>p</th></tr></thead>
+    <div className="overflow-x-auto scroll-thin"><table className="table nowrap"><thead><tr><th>terrain</th><th>condition</th><th>metric</th><th>pairs</th><th>mean diff (ASTRA − FSM)</th><th>test</th><th>p</th></tr></thead>
       <tbody>{rows.map((p, i) => <tr key={i}><td className="num">{p.terrain}</td><td>{p.condition}</td><td>{p.metric}</td><td className="num">{p.n}</td><td className="num">{fmt(p.mean_diff, 3)}</td><td>{p.test}</td><td className="num">{fmt(p.p_value, 3)}</td></tr>)}</tbody></table></div>
   );
 }
@@ -45,7 +45,7 @@ export default function ExperimentLab() {
     <div>
       <PageHeader eyebrow="Matched, reproducible batches" title="Experiment Lab" />
       <ErrorNote error={err || list.error} />
-      <div className="grid xl:grid-cols-[380px_1fr] gap-5">
+      <div className="grid xl:grid-cols-[360px_minmax(0,1fr)] gap-5">
         <div className="space-y-5">
           <Panel eyebrow="Design" title="New experiment">
             <div className="space-y-3">
@@ -57,10 +57,10 @@ export default function ExperimentLab() {
               </div>
               {f.module === "rover" && <>
                 <label className="flex items-center gap-2 text-[12.5px]"><input type="checkbox" checked={f.held_out} onChange={(e) => setF({ ...f, held_out: e.target.checked, terrains: e.target.checked ? [4, 5] : [1] })} /> Held-out evaluation mode (terrains 4–5 only)</label>
-                <div><span className="label">Terrains</span><div className="flex gap-2">{terrOpts.map((t) => <button key={t} className={`chip ${f.terrains.includes(t) ? "!bg-sage !text-ink" : ""}`} onClick={() => toggle("terrains", t)}>T{t}</button>)}</div></div>
+                <div><span className="label">Terrains</span><div className="flex gap-2">{terrOpts.map((t) => <button key={t} className={`chip ${f.terrains.includes(t) ? "sel" : ""}`} onClick={() => toggle("terrains", t)}>T{t}</button>)}</div></div>
               </>}
-              <div><span className="label">Conditions</span><div className="flex flex-wrap gap-1.5">{allConds.map((c) => <button key={c} className={`chip ${f.conditions.includes(c) ? "!bg-sage !text-ink" : ""}`} onClick={() => toggle("conditions", c)}>{c}</button>)}</div></div>
-              <div><span className="label">Controllers</span><div className="flex gap-1.5">{(f.module === "rover" ? ["astra", "fsm"] : ["pid", "mpc", "ppo"]).map((c) => <button key={c} className={`chip ${f.controllers.includes(c) ? "!bg-sage !text-ink" : ""}`} onClick={() => toggle("controllers", c)}>{c}</button>)}</div></div>
+              <div><span className="label">Conditions</span><div className="flex flex-wrap gap-1.5">{allConds.map((c) => <button key={c} className={`chip ${f.conditions.includes(c) ? "sel" : ""}`} onClick={() => toggle("conditions", c)}>{c}</button>)}</div></div>
+              <div><span className="label">Controllers</span><div className="flex gap-1.5">{(f.module === "rover" ? ["astra", "fsm"] : ["pid", "mpc", "ppo"]).map((c) => <button key={c} className={`chip ${f.controllers.includes(c) ? "sel" : ""}`} onClick={() => toggle("controllers", c)}>{c}</button>)}</div></div>
               <div className="text-[12px] text-ink2">{n} trials will be created.</div>
               <div className="flex gap-2"><button className="btn btn-ghost" onClick={() => create(false)}>Create</button><button className="btn btn-primary" onClick={() => create(true)}>Create & run</button></div>
             </div>

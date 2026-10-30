@@ -156,3 +156,34 @@ def debrief():
 def controllers():
     return {"astra": {"available": True, "description": "Fault-specific, uncertainty-aware adaptive replanning"},
             "fsm": {"available": True, "description": "Fixed rule-based finite-state-machine baseline"}}
+
+
+@router.get("/landing")
+def landing():
+    """Sky-crane landing sequence for the configured terrain/seed (computed dynamics, see simulation/rover/skycrane.py)."""
+    import numpy as np
+
+    from simulation.rover.skycrane import simulate_skycrane
+    s = _session()
+    with s.lock:
+        t = s.mission.terrain
+        seed = s.mission.cfg.seed
+        mass = s.mission.geom.total_mass
+    heading = float(np.arctan2(t.target[1] - t.start[1], t.target[0] - t.start[0]))
+    return simulate_skycrane(t.start, t.height, heading=heading, seed=seed, rover_mass=mass)
+
+
+@router.get("/costmap")
+def costmap():
+    """Perceived traversability cost, hard constraints and slope (the planner's own view of the terrain)."""
+    import numpy as np
+
+    from autonomy.planning.traversability import build_costmap
+    s = _session()
+    with s.lock:
+        m = s.mission
+        cost, hard, info = build_costmap(m.map, m.weights, m.ekf.pos_sigma(), float(np.min(m.actuator_health_est)))
+        slope = m.map.slope()
+        seen = (m.map.seen_t >= 0)
+    return {"cell": 1.0, "size_m": 60.0, "cost": np.round(np.where(hard, -1, cost), 2).tolist(),
+            "slope": np.round(slope, 1).tolist(), "seen": seen.astype(int).tolist(), "info": info}

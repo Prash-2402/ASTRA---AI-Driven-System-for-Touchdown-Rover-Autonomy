@@ -384,7 +384,14 @@ class TouchdownMission:
         """Static scene for visualisation (true terrain grid, rocks, craters) + perceived hazard map."""
         rocks = self.terrain.rock_array()
         big = rocks[rocks[:, 3] > 0.3] if len(rocks) else rocks
-        return {"terrain": self.terrain.downsampled(5), "rocks": np.round(big, 2).tolist(),
+        T = self.terrain
+        cx, cy = self.original_target[:2]
+        i0 = int(np.clip((cx - 260 - T.origin) / T.res, 0, T.n - 1)); i1 = int(np.clip((cx + 260 - T.origin) / T.res, 0, T.n - 1))
+        j0 = int(np.clip((cy - 260 - T.origin) / T.res, 0, T.n - 1)); j1 = int(np.clip((cy + 260 - T.origin) / T.res, 0, T.n - 1))
+        detail = {"x0": T.origin + i0 * T.res, "y0": T.origin + j0 * T.res, "resolution_m": T.res,
+                  "heights": np.round(T.heights[i0:i1 + 1, j0:j1 + 1], 2).tolist(),
+                  "slope_deg": np.round(T.slope_deg[i0:i1 + 1, j0:j1 + 1], 1).tolist()}
+        return {"terrain": self.terrain.downsampled(5), "detail": detail, "rocks": np.round(big, 2).tolist(),
                 "craters": self.terrain.craters, "original_target": self.original_target.tolist(),
                 "perceived": self.hmap.to_dict()}
 

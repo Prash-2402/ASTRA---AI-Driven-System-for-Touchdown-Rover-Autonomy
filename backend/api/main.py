@@ -36,11 +36,26 @@ def create_app() -> FastAPI:
         app.include_router(routes_rover.router)
     except ImportError:
         pass
+    from backend.api import routes_moon
+    app.include_router(routes_moon.router)
     try:
         from backend.api import routes_experiments
         app.include_router(routes_experiments.router)
     except ImportError:
         pass
+    @app.on_event("startup")
+    def _mark_orphaned_batches():
+        """A batch marked 'running' cannot be alive when the API process (its parent) has just started:
+        mark it 'interrupted' so the UI shows it truthfully; completed trials are kept and it can be resumed."""
+        try:
+            from backend.database import models as M
+            from backend.database.session import session_scope
+            with session_scope() as s:
+                for e in s.query(M.Experiment).filter(M.Experiment.status == "running"):
+                    e.status = "interrupted"
+        except Exception:  # noqa: BLE001 - DB may be unavailable; status endpoint reports that
+            pass
+
     return app
 
 

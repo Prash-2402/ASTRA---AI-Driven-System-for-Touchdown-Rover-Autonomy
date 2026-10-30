@@ -1,6 +1,6 @@
 // Typed contracts mirroring shared/schemas/api.py and backend payloads.
 export type SimStatus = "idle" | "running" | "paused" | "stopped" | "completed" | "error";
-export type ModuleId = "touchdown" | "rover";
+export type ModuleId = "touchdown" | "rover" | "moon";
 
 export interface SessionInfo {
   module: ModuleId; run_uid: string; status: SimStatus; speed: number; t: number;

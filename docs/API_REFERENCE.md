@@ -22,6 +22,13 @@ PPO config returns 409 while no completed policy exists.
 `GET /scene` · `GET /terrain` · `GET /terrain/{variant}` · `GET /faults` · `POST /faults {fault_type,duration,params}` ·
 `GET /decisions` · `GET /debrief` · `GET /controllers`.
 
+## Moon (`/api/moon`)
+`GET/POST /config` (seed, high-gate altitude/downrange, crossrange, P66 rate, propellant) · lifecycle (`/start`,
+`/pause`, `/resume`, `/stop`, `/reset`, `/speed`) · `GET /telemetry` · `GET /scene` · `GET /decisions` · `GET /debrief`.
+
+## Rover additions
+`GET /api/rover/landing` (computed sky-crane sequence) · `GET /api/rover/costmap` (planner's perceived cost, hard cells, slope).
+
 ## Experiments & results
 `GET /api/experiments/conditions` · `GET/POST /api/experiments` (held-out guard → 422) · `GET /api/experiments/{id}` ·
 `POST /api/experiments/{id}/run?workers=n` (409 if another batch runs) · `POST /api/experiments/{id}/cancel` ·

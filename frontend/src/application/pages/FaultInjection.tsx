@@ -25,7 +25,7 @@ export default function FaultInjection() {
   const defs = faults.data?.defaults || {};
   return (
     <div>
-      <PageHeader eyebrow="Rover fault taxonomy (closed: four classes)" title="Fault Injection"><StatusPill status={live?.status} /></PageHeader>
+      <PageHeader eyebrow="Rover fault taxonomy (closed: four classes)" title="Fault Injection"><span className="text-[12px] text-muted flex items-center gap-2">Rover session <StatusPill status={live?.status ?? "idle"} /></span></PageHeader>
       <ErrorNote error={err} />
       {live?.status !== "running" && <div className="panel-soft p-4 text-[13px] mb-5">Live injection requires a running rover session (Rover page or Mission Control). For reproducible schedules use the Scenario Builder or Experiment Lab.</div>}
       <div className="grid md:grid-cols-2 gap-5">

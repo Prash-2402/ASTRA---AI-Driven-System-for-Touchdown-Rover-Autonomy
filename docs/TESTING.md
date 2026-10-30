@@ -18,5 +18,5 @@ Integration tests use `ASTRA_DATABASE_URL=…/astra_test` and re-run migrations 
 | Integration | status & modules; lifecycle incl. pause really pauses; persistence; CSV/PDF export; PPO 409; closed taxonomy 422; websocket; experiment held-out guard, execution, results, exports |
 | Reproducibility | same seed → identical lander state; same seed → identical rover pose; nominal ASTRA ≡ FSM |
 
-**Last full run:** 53 passed, 0 failed (`pytest -p no:warnings -q`). Frontend typecheck and production build pass;
+**Last full run:** 60 passed, 0 failed (adds lunar free fall/no-drag, DPS mass flow, Moon landing + determinism, dust altitude gating, sky-crane touchdown/swing/flyaway, rover and Moon API lifecycles) (`pytest -p no:warnings -q`). Frontend typecheck and production build pass;
 all 15 routes were loaded in headless Chromium with zero console errors after fixes.

@@ -1,6 +1,7 @@
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
 import * as THREE from "three";
+import { bakeMars } from "./marsBake";
 
 /** Shared scroll state written by the landing page, read inside the render loop (no React re-renders). */
 export const scrollState = { progress: 0, section: 0 };
@@ -25,29 +26,7 @@ void main(){ vPos = position; vec4 wp = modelMatrix*vec4(position,1.0);
   vNormalW = normalize(mat3(modelMatrix)*normal); vViewDir = normalize(cameraPosition - wp.xyz);
   gl_Position = projectionMatrix*viewMatrix*wp; }`;
 
-const planetFrag = /* glsl */ `
-uniform vec3 uSun; uniform float uTime;
-varying vec3 vPos; varying vec3 vNormalW; varying vec3 vViewDir;
-${NOISE}
-void main(){
-  vec3 p = normalize(vPos);
-  float h = fbm(p*2.2) ;
-  float fine = fbm(p*9.0)*0.35;
-  float c1 = craters(p*6.0); float c2 = craters(p*15.0);
-  float crater = smoothstep(0.22,0.0,c1)*0.55 + smoothstep(0.16,0.0,c2)*0.3;
-  float rim = smoothstep(0.3,0.22,c1)*smoothstep(0.16,0.24,c1)*0.4;
-  float e = h + fine - crater*0.6 + rim*0.5;
-  vec3 low = vec3(0.36,0.17,0.10); vec3 mid = vec3(0.66,0.36,0.21); vec3 high = vec3(0.86,0.64,0.45); vec3 dust = vec3(0.78,0.55,0.38);
-  vec3 col = mix(low, mid, smoothstep(-0.35,0.1,e)); col = mix(col, high, smoothstep(0.15,0.55,e));
-  col = mix(col, dust, 0.25*smoothstep(0.2,0.8,fbm(p*3.5+3.0)));
-  float pole = smoothstep(0.93,0.985,abs(p.y) + 0.04*fbm(p*8.0)); col = mix(col, vec3(0.93,0.92,0.88), pole*0.85);
-  float diff = max(dot(vNormalW, normalize(uSun)), 0.0);
-  float term = smoothstep(-0.08, 0.35, dot(vNormalW, normalize(uSun)));
-  vec3 lit = col*(0.035 + 1.15*diff*term);
-  float fres = pow(1.0 - max(dot(vNormalW, vViewDir),0.0), 3.0);
-  lit += vec3(0.55,0.75,0.62)*fres*0.35*term;
-  gl_FragColor = vec4(lit, 1.0);
-}`;
+
 
 const atmoFrag = /* glsl */ `
 uniform vec3 uSun; varying vec3 vNormalW; varying vec3 vViewDir; varying vec3 vPos;
@@ -66,15 +45,42 @@ ${NOISE}
 void main(){
   vec3 p = normalize(vPos);
   float n = fbm(p*3.0 + vec3(uTime*0.01, 0.0, uTime*0.006));
-  float a = smoothstep(0.08, 0.45, n) * 0.38;
+  float a = smoothstep(0.12, 0.5, n) * 0.16;
   float day = smoothstep(-0.1, 0.5, dot(vNormalW, normalize(uSun)));
   gl_FragColor = vec4(vec3(0.95,0.86,0.76)*day, a*day);
 }`;
 
+/** Irregular small moon (noise-displaced icosahedron). */
+function SmallMoon({ radius, seed }: { radius: number; seed: number }) {
+  const geom = useMemo(() => {
+    const g = new THREE.IcosahedronGeometry(radius, 3); const p = g.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      const k = 1 + 0.18 * Math.sin(x * 9 + seed) * Math.cos(y * 7 + seed) + 0.1 * Math.sin(z * 13 + seed * 2);
+      p.setXYZ(i, x * k * 1.35, y * k * 0.9, z * k); }
+    g.computeVertexNormals(); return g;
+  }, [radius, seed]);
+  return <mesh geometry={geom}><meshStandardMaterial color="#6e6058" roughness={1} flatShading /></mesh>;
+}
+
+function Moons() {
+  const phobos = useRef<THREE.Group>(null!), deimos = useRef<THREE.Group>(null!);
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime;
+    phobos.current.position.set(Math.cos(t * 0.22) * 2.75, Math.sin(t * 0.22) * 0.05, Math.sin(t * 0.22) * 2.75);
+    phobos.current.rotation.y = -t * 0.22;
+    deimos.current.position.set(Math.cos(t * 0.07 + 2) * 4.3, 0.04, Math.sin(t * 0.07 + 2) * 4.3);
+  });
+  return (<><group ref={phobos}><SmallMoon radius={0.05} seed={1} /></group><group ref={deimos}><SmallMoon radius={0.032} seed={4} /></group></>);
+}
+
 function Planet() {
+  const { gl } = useThree();
+  const maps = useMemo(() => bakeMars(gl, 2048), [gl]);
+  const surface = useMemo(() => new THREE.MeshStandardMaterial({ map: maps.color, bumpMap: maps.height, bumpScale: 9, roughness: 0.96, metalness: 0 }), [maps]);
+  const spin = useRef<THREE.Mesh>(null!);
   const group = useRef<THREE.Group>(null!);
   const clouds = useRef<THREE.Mesh>(null!);
-  const sun = useMemo(() => new THREE.Vector3(-4, 2.2, 3.5), []);
+  const sun = useMemo(() => new THREE.Vector3(-5, 1.6, 1.8), []);
   const uniforms = useMemo(() => ({ uSun: { value: sun }, uTime: { value: 0 } }), [sun]);
   const target = useRef(new THREE.Vector3());
   // scroll choreography: per-section planet placement [x, y, scale]
@@ -94,18 +100,18 @@ function Planet() {
     g.position.y += (target.current.y - g.position.y) * Math.min(1, dt * 3);
     const s = g.scale.x + (target.current.z - g.scale.x) * Math.min(1, dt * 3);
     g.scale.setScalar(s);
-    g.rotation.y += dt * 0.035;
-    clouds.current.rotation.y += dt * 0.012;
+    spin.current.rotation.y += dt * 0.045;           // sidereal rotation (visually accelerated)
+    clouds.current.rotation.y += dt * 0.052;
     state.camera.position.x = Math.sin(state.clock.elapsedTime * 0.05) * 0.15 + state.pointer.x * 0.12;
     state.camera.position.y = state.pointer.y * 0.08;
     state.camera.lookAt(0, 0, 0);
   });
   return (
-    <group ref={group} rotation={[0.25, 0, 0.12]}>
-      <mesh>
-        <sphereGeometry args={[1.6, 160, 160]} />
-        <shaderMaterial vertexShader={planetVert} fragmentShader={planetFrag} uniforms={uniforms} />
+    <group ref={group} rotation={[0.18, 0, 0.4392]}>{/* axial tilt 25.19 deg */}
+      <mesh ref={spin} material={surface} rotation={[0, 1.9, 0]}>
+        <sphereGeometry args={[1.6, 192, 128]} />
       </mesh>
+      <Moons />
       <mesh ref={clouds} scale={1.012}>
         <sphereGeometry args={[1.6, 96, 96]} />
         <shaderMaterial vertexShader={planetVert} fragmentShader={cloudFrag} uniforms={uniforms} transparent depthWrite={false} />
@@ -180,8 +186,10 @@ function Dust({ count = 700 }) {
 
 export default function PlanetScene() {
   return (
-    <Canvas camera={{ position: [0, 0, 6.2], fov: 42 }} dpr={[1, 1.75]} gl={{ antialias: true, powerPreference: "high-performance" }}>
+    <Canvas camera={{ position: [0, 0, 6.2], fov: 42 }} dpr={[1, 1.75]} gl={{ antialias: true, powerPreference: "high-performance", toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 0.95 }}>
       <color attach="background" args={["#04060a"]} />
+      <ambientLight intensity={0.035} />
+      <directionalLight position={[-5, 1.6, 1.8]} intensity={2.4} color="#fff4e8" />
       <Stars />
       <Dust />
       <Planet />

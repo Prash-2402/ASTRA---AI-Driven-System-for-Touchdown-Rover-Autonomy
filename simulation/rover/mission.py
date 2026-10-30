@@ -532,6 +532,13 @@ class RoverMission:
             s["actual_path"] = self.true_trail[::2]
             s["estimated_path"] = [f["estimate"]["position"][:2] for f in self.telemetry[::5]]
             s["path_history"] = [{k: v for k, v in h.items() if k != "path"} | {"path": h["path"]} for h in self.path_history[-4:]]
+            if self.last_lidar is not None and self.t - self.last_seen["lidar"] < 1.0:
+                x = self.ekf.x
+                pb = self.last_lidar["points_body"]
+                fin = np.all(np.isfinite(pb), axis=1)
+                c, sn = np.cos(x[4]), np.sin(x[4])
+                P = pb[fin][::3]
+                s["lidar"] = np.round(np.c_[x[0] + c * P[:, 0] - sn * P[:, 1], x[1] + sn * P[:, 0] + c * P[:, 1], x[2] + P[:, 2]], 2).tolist()
             s["perceived"] = {"obstacles": np.argwhere(self.map.obstacle).tolist(),
                               "untraversable": np.argwhere(self.map.cam_trav == 0).tolist()}
         return s

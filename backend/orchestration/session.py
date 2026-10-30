@@ -140,7 +140,9 @@ class SimulationSession:
 
     @staticmethod
     def _terminal(m) -> bool:
-        return bool(getattr(m, "terminal", False) or (getattr(m, "supervisor", None) and m.supervisor.terminal))
+        if hasattr(m, "terminal"):                      # rover / moon missions expose `terminal` directly
+            return bool(m.terminal)
+        return bool(m.supervisor.terminal)              # touchdown: mission-supervisor FSM
 
     def _finalize(self):
         if not self.persist:

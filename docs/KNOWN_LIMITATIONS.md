@@ -22,6 +22,17 @@
   see the experiment record for N actually completed.
 - Fault severities were calibrated on development terrains (documented in EXPERIMENTAL_METHODOLOGY.md).
 
+## Moon Landing
+- Planar-coupled attitude (pitch, roll); no yaw dynamics. Continuous DPS throttle (real engine had a forbidden band).
+- No hazard detection / landing-point redesignation; horizontal navigation drifts uncorrected.
+- Dust erosion is an empirical rate model; rendered ejection speeds are reduced for visibility.
+
+## Visualisation
+- Planet and terrain surfaces are procedural (external imagery could not be downloaded in this environment).
+  The landing-page globe places real features (Olympus Mons, Valles Marineris, Hellas…) at their areographic
+  coordinates, but it is a stylised rendering, not imagery.
+- Crater walls around the rover arena and the relay orbiter's distance are visual context, not simulated.
+
 ## Platform
 - Single live session per module; no authentication (local research tool).
 - Telemetry archives grow on disk (~1 MB per interactive run); no retention policy yet.

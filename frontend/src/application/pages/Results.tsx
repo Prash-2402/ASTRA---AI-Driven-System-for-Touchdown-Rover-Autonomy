@@ -6,22 +6,24 @@ import { usePoll } from "../../hooks/useChannel";
 import { api } from "../../services/api";
 import { PairedTable, ResultsTable } from "./ExperimentLab";
 
-const ax = { fontSize: 10, fontFamily: "JetBrains Mono", fill: "#849084" };
-const C = { astra: "#536F59", fsm: "#D69B4D", pid: "#536F59", mpc: "#7798A3", ppo: "#C76C64" } as Record<string, string>;
+const ax = { fontSize: 10, fontFamily: "JetBrains Mono", fill: "#8A94A6" };
+const C = { astra: "#4C6EF5", fsm: "#F08C00", pid: "#4C6EF5", mpc: "#12B886", ppo: "#E03131" } as Record<string, string>;
 
 function Grouped({ rows, metric, label, ci }: { rows: any[]; metric: string; label: string; ci?: boolean }) {
   const ctrls = Array.from(new Set(rows.map((r) => r.controller)));
   const by: Record<string, any> = {};
   rows.forEach((r) => {
-    const k = `${r.terrain === "-" ? "" : "T" + r.terrain + " "}${r.condition.replace("paired:", "⧉ ")}`;
+    const short: Record<string, string> = { nominal: "nominal", sensor_dropout: "dropout", terrain_misclassification: "misclass", power_drain: "power", actuator_degradation: "actuator",
+      "paired:dropout+actuator": "dropout+act", "paired:misclass+power": "misclass+pwr", hazard: "hazard", disturbance: "gust" };
+    const k = `${r.terrain === "-" ? "" : "T" + r.terrain + " · "}${short[r.condition] ?? r.condition}`;
     by[k] = by[k] || { name: k };
     if (metric === "completion_rate") { by[k][r.controller] = r.completion_rate; by[k][r.controller + "_e"] = [r.completion_rate - r.ci_low, r.ci_high - r.completion_rate]; }
     else by[k][r.controller] = r.metrics[metric]?.mean ?? null;
   });
-  return <div style={{ height: 260 }}><ResponsiveContainer><BarChart data={Object.values(by)} margin={{ left: -10 }}><CartesianGrid stroke="rgba(83,111,89,.1)" vertical={false} />
-    <XAxis dataKey="name" tick={{ ...ax, fontSize: 9 }} interval={0} angle={-18} textAnchor="end" height={60} /><YAxis tick={ax} label={{ value: label, angle: -90, position: "insideLeft", offset: 20, style: ax }} />
-    <Tooltip formatter={(v: any) => (typeof v === "number" ? v.toFixed(3) : v)} /><Legend wrapperStyle={{ fontSize: 11 }} />
-    {ctrls.map((c) => <Bar key={c} dataKey={c} fill={C[c] || "#AFC3A7"} radius={[6, 6, 0, 0]}>{ci && <ErrorBar dataKey={c + "_e"} stroke="#26372D" width={4} />}</Bar>)}</BarChart></ResponsiveContainer></div>;
+  return <div style={{ height: 260 }}><ResponsiveContainer><BarChart data={Object.values(by)} margin={{ left: -10 }}><CartesianGrid stroke="rgba(17,24,39,.06)" vertical={false} />
+    <XAxis dataKey="name" tick={{ ...ax, fontSize: 9.5 }} interval={0} angle={-30} textAnchor="end" height={64} /><YAxis tick={ax} label={{ value: label, angle: -90, position: "insideLeft", offset: 20, style: ax }} />
+    <Tooltip contentStyle={{ background: "#FFFFFF", border: "1px solid rgba(17,24,39,.1)", borderRadius: 12, fontSize: 11 }} formatter={(v: any) => (typeof v === "number" ? v.toFixed(3) : v)} /><Legend wrapperStyle={{ fontSize: 11 }} />
+    {ctrls.map((c) => <Bar key={c} dataKey={c} fill={C[c] || "#AFC3A7"} radius={[6, 6, 0, 0]}>{ci && <ErrorBar dataKey={c + "_e"} stroke="#111827" width={4} />}</Bar>)}</BarChart></ResponsiveContainer></div>;
 }
 
 export default function Results() {

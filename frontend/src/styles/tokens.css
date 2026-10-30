@@ -1,28 +1,32 @@
+/* ASTRA application palette — light & modern.
+   Cool off-white canvas, white cards, soft indigo accent for interaction, terracotta for Mars / hazard cues.
+   (Token names kept from the first design system so every component re-themes consistently.) */
 :root {
-  --background: #F5F4E9;
-  --background-secondary: #EFEEE0;
-  --surface: #FFFEF7;
-  --surface-secondary: #E9EDDF;
-  --primary: #779477;
-  --primary-dark: #536F59;
-  --primary-light: #AFC3A7;
-  --sage: #DCE6D5;
-  --sage-soft: #EAF0E5;
-  --cream: #F8F5E9;
-  --ivory: #FFFDF4;
-  --ink: #26372D;
-  --ink-secondary: #526257;
-  --muted: #849084;
-  --border: rgba(83,111,89,.15);
-  --border-strong: rgba(83,111,89,.28);
-  --success: #648C65;
-  --warning: #D69B4D;
-  --danger: #C76C64;
-  --info: #7798A3;
+  --background: #F5F7FB;
+  --background-secondary: #EEF1F7;
+  --surface: #FFFFFF;
+  --surface-secondary: #F7F8FC;
+  --primary: #4C6EF5;          /* indigo: actions, active state */
+  --primary-dark: #3B5BDB;
+  --primary-light: #DBE4FF;
+  --sage: #EDF2FF;             /* selected fills */
+  --sage-soft: #F4F6FC;        /* subtle fills / hover */
+  --cream: #FFFFFF;            /* sidebar */
+  --ivory: #F8FAFD;            /* inset wells, inputs */
+  --ink: #111827;              /* primary text (17:1 on white) */
+  --ink-secondary: #4B5563;    /* secondary text (7.5:1) */
+  --muted: #6B7280;            /* labels (4.8:1) */
+  --border: rgba(17,24,39,.08);
+  --border-strong: rgba(17,24,39,.16);
+  --success: #12B886;
+  --warning: #F08C00;
+  --danger: #E03131;
+  --info: #1C7ED6;
+  --copper: #D9643A;
   --radius-sm: 10px;
-  --radius-md: 16px;
-  --radius-lg: 24px;
-  --radius-xl: 30px;
-  --shadow-soft: 0 8px 30px rgba(64,82,58,.06);
-  --shadow-card: 0 14px 45px rgba(64,82,58,.09);
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --shadow-soft: 0 1px 2px rgba(16,24,40,.04), 0 4px 16px rgba(16,24,40,.05);
+  --shadow-card: 0 2px 4px rgba(16,24,40,.05), 0 12px 32px rgba(16,24,40,.08);
 }

@@ -6,6 +6,8 @@ const HISTORY = 900; // ~90 s of 10 Hz publication for live charts
 interface SimState {
   touchdown: TouchdownSnapshot | null;
   rover: RoverSnapshot | null;
+  moon: any | null;
+  moonHistory: any[];
   tdHistory: any[];
   roverHistory: any[];
   events: (MissionEvent & { module?: string })[];
@@ -17,7 +19,7 @@ interface SimState {
 }
 
 export const useSim = create<SimState>((set) => ({
-  touchdown: null, rover: null, tdHistory: [], roverHistory: [], events: [], wsConnected: false,
+  touchdown: null, rover: null, moon: null, moonHistory: [], tdHistory: [], roverHistory: [], events: [], wsConnected: false,
   ingest: (snap) => set((s) => {
     if (snap.module === "touchdown") {
       const f = snap.frame;
@@ -43,6 +45,15 @@ export const useSim = create<SimState>((set) => ({
         nis: f.nis?.visloc ?? null,
       }].slice(-HISTORY) : hist;
       return { rover: snap, roverHistory: next };
+    }
+    if (snap.module === "moon") {
+      const f = snap.frame;
+      const same = s.moon?.run_uid === snap.run_uid;
+      const hist = same ? s.moonHistory : [];
+      const last = hist[hist.length - 1];
+      const next = f && (!last || last.t !== f.t) ? [...hist, { t: f.t, agl: f.truth.agl, vz: f.truth.velocity[2], vx: f.truth.velocity[0],
+        throttle: f.engine.throttle, prop: f.truth.propellant, dust: f.dust_rate, nav: f.error.position, pitch: (f.truth.pitch * 180) / Math.PI }].slice(-HISTORY) : hist;
+      return { moon: snap, moonHistory: next };
     }
     return {};
   }),

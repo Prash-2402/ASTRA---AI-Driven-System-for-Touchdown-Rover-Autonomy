@@ -1,131 +1,150 @@
-import { Line, OrbitControls } from "@react-three/drei";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Line } from "@react-three/drei";
+import { Canvas, useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import type { TouchdownSnapshot } from "../services/types";
+import { CameraRig, CamMode, FollowSun, Rocks, SkyDome, ramp, useDust } from "./lib/scene";
+import { bilinear, gridGeometry } from "./lib/terrainMesh";
+import { fbmField, regolith } from "./lib/textures";
+import MarsLander from "./models/MarsLander";
+import RelayOrbiter from "./models/RelayOrbiter";
 
-// world ENU metres -> scene units: x=E, y=Up, z=-N ; 1 unit = 10 m. Lander drawn exaggerated (labelled in UI).
-const S = 0.1;
-const toV = (p: number[]) => new THREE.Vector3(p[0] * S, p[2] * S, -p[1] * S);
+// 1 scene unit = 1 m. World ENU (x E, y N, z Up) -> scene (x, z, -y).
+const toV = (p: number[]) => new THREE.Vector3(p[0], p[2], -p[1]);
+const SUN: [number, number, number] = [-0.5, 0.55, 0.45];
 
-function Terrain({ scene }: { scene: any }) {
-  const geom = useMemo(() => {
-    const h: number[][] = scene.terrain.heights;
-    const n = h.length, res = scene.terrain.resolution_m, o = scene.terrain.origin;
-    const g = new THREE.PlaneGeometry((n - 1) * res * S, (n - 1) * res * S, n - 1, n - 1);
-    g.rotateX(-Math.PI / 2);
-    const pos = g.attributes.position as THREE.BufferAttribute;
-    const col = new Float32Array(pos.count * 3);
-    let lo = Infinity, hi = -Infinity; h.forEach((r) => r.forEach((v) => { lo = Math.min(lo, v); hi = Math.max(hi, v); }));
-    const c1 = new THREE.Color("#8a5a3c"), c2 = new THREE.Color("#c99a6b"), c3 = new THREE.Color("#e6c9a3"), tmp = new THREE.Color();
-    for (let k = 0; k < pos.count; k++) {
-      const x = pos.getX(k) / S, zN = -pos.getZ(k) / S;
-      const i = Math.round((x - o) / res), j = Math.round((zN - o) / res);
-      const v = h[Math.min(n - 1, Math.max(0, i))][Math.min(n - 1, Math.max(0, j))];
-      pos.setY(k, v * S);
-      const f = (v - lo) / Math.max(hi - lo, 1e-6);
-      tmp.copy(c1).lerp(c2, Math.min(1, f * 1.6)); if (f > 0.6) tmp.lerp(c3, (f - 0.6) / 0.4);
-      col.set([tmp.r, tmp.g, tmp.b], k * 3);
-    }
-    g.setAttribute("color", new THREE.BufferAttribute(col, 3));
-    g.translate(o * S + ((n - 1) * res * S) / 2, 0, -(o * S + ((n - 1) * res * S) / 2));
-    g.computeVertexNormals();
-    return g;
-  }, [scene]);
-  return <mesh geometry={geom} receiveShadow><meshStandardMaterial vertexColors roughness={0.95} metalness={0} /></mesh>;
+function useGround(scene: any, overlay: "none" | "slope" | "hazard") {
+  return useMemo(() => {
+    const T = scene.terrain, D = scene.detail;
+    const noise = fbmField(256, 6, 5, 19);
+    const nz = (x: number, y: number, s: number) => noise[((Math.floor(x * s) % 256 + 256) % 256) * 256 + ((Math.floor(y * s) % 256 + 256) % 256)];
+    const tone = (x: number, y: number, _z: number, slope: number, c: THREE.Color) => {
+      const v = 0.82 + (nz(x, y, 0.03) - 0.5) * 0.35;
+      const dark = Math.min(1, slope / 20) * 0.18;
+      c.setRGB((0.70 - dark) * v, (0.47 - dark * 0.8) * v, (0.33 - dark * 0.6) * v);
+    };
+    const n = D.heights.length;
+    const dEnd = D.x0 + (n - 1) * D.resolution_m, dEndY = D.y0 + (n - 1) * D.resolution_m;
+    const coarse = gridGeometry(T.heights, T.origin, T.origin, T.resolution_m, tone, { uvScale: 30,
+      skip: (i, j) => { const x = T.origin + i * T.resolution_m, y = T.origin + j * T.resolution_m;
+        return x > D.x0 && x + T.resolution_m < dEnd && y > D.y0 && y + T.resolution_m < dEndY; } });
+    const slopeTone = (x: number, y: number, z: number, slope: number, c: THREE.Color) => {
+      if (overlay === "slope") { const i = Math.round((x - D.x0) / D.resolution_m), j = Math.round((y - D.y0) / D.resolution_m);
+        const sd = D.slope_deg[Math.min(n - 1, Math.max(0, i))][Math.min(n - 1, Math.max(0, j))]; ramp(sd / 15, c); c.multiplyScalar(0.9); return; }
+      tone(x, y, z, slope, c);
+    };
+    const detail = gridGeometry(D.heights, D.x0, D.y0, D.resolution_m, slopeTone, { uvScale: 6 });
+    const ground = (x: number, y: number) => (x > D.x0 && x < dEnd && y > D.y0 && y < dEndY
+      ? bilinear(D.heights, D.x0, D.y0, D.resolution_m, x, y) : bilinear(T.heights, T.origin, T.origin, T.resolution_m, x, y));
+    const rocks: [number, number, number, number][] = (scene.rocks || []).filter((r: number[]) => Math.hypot(r[0], r[1]) < 300)
+      .map((r: number[]) => [r[0], ground(r[0], r[1]) + r[3] * 0.35, -r[1], Math.max(r[2], 0.25)]);
+    return { coarse, detail, ground, rocks };
+  }, [scene, overlay]);
 }
 
-function Rocks({ rocks }: { rocks: number[][] }) {
-  const ref = useRef<THREE.InstancedMesh>(null!);
-  const near = useMemo(() => rocks.filter((r) => Math.hypot(r[0], r[1]) < 450), [rocks]);
-  useEffect(() => {
-    const m = new THREE.Matrix4();
-    near.forEach((r, i) => { m.makeScale(r[2] * S * 2.5, r[3] * S * 2.5, r[2] * S * 2.5); m.setPosition(r[0] * S, 0.0, -r[1] * S); ref.current.setMatrixAt(i, m); });
-    ref.current.instanceMatrix.needsUpdate = true;
-  }, [near]);
-  return <instancedMesh ref={ref} args={[undefined, undefined, Math.max(near.length, 1)]}><dodecahedronGeometry args={[1, 0]} /><meshStandardMaterial color="#5b3f2e" roughness={1} /></instancedMesh>;
-}
-
-function Lander({ snap, exaggeration }: { snap: TouchdownSnapshot; exaggeration: number }) {
+function Lander({ snap, labels, dust, ground, pos }: { snap: TouchdownSnapshot; labels: boolean; dust: ReturnType<typeof useDust>; ground: (x: number, y: number) => number; pos: React.MutableRefObject<THREE.Vector3> }) {
   const g = useRef<THREE.Group>(null!);
-  const plume = useRef<THREE.Mesh>(null!);
-  const tgt = useRef(new THREE.Vector3());
-  const q = useRef(new THREE.Quaternion());
   const f = snap.frame;
+  const tq = useRef(new THREE.Quaternion());
+  const tp = useRef(toV(f.truth.position));
   useEffect(() => {
-    tgt.current.copy(toV(f.truth.position));
-    const [r, p, y] = f.truth.euler; // ZYX body->world in ENU; convert to scene axes
+    // the lander's body origin is its CoM, 1.2 m above the footpad plane
+    tp.current = toV(f.truth.position).add(new THREE.Vector3(0, -1.2, 0));
+    const [r, p, y] = f.truth.euler;
     const qe = new THREE.Quaternion().setFromEuler(new THREE.Euler(r, p, y, "ZYX"));
-    const basis = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().set(1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1));
-    q.current.copy(basis).multiply(qe).multiply(basis.clone().invert());
+    const B = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().set(1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1));
+    tq.current.copy(B).multiply(qe).multiply(B.clone().invert());
   }, [f]);
   useFrame((_, dt) => {
-    // render-side interpolation only (simulation truth is never modified)
-    g.current.position.lerp(tgt.current, Math.min(1, dt * 8));
-    g.current.quaternion.slerp(q.current, Math.min(1, dt * 8));
-    const th = f.actuators.throttle;
-    plume.current.scale.set(1, Math.max(0.01, th) * 1.0, 1);
-    (plume.current.material as THREE.MeshBasicMaterial).opacity = 0.25 + 0.6 * th;
+    if (g.current.position.lengthSq() === 0) g.current.position.copy(tp.current);
+    g.current.position.lerp(tp.current, Math.min(1, dt * 8));
+    g.current.quaternion.slerp(tq.current, Math.min(1, dt * 8));
+    pos.current.copy(g.current.position);
+    const agl = f.truth.agl;
+    if (agl < 30 && f.actuators.throttle > 0.05) {
+      const p = g.current.position; const gy = ground(p.x, -p.z);
+      dust.emit(Math.round(f.actuators.throttle * (30 - agl) * 3), p.x, gy + 0.05, p.z, 4, 22, 3, 25, 2 + agl * 0.3, 3.5);
+    }
+    dust.step(Math.min(dt, 0.05));
   });
-  const k = exaggeration * S;
-  return (
-    <group ref={g}>
-      <group scale={[k, k, k]}>
-        <mesh position={[0, 1.4, 0]} castShadow><cylinderGeometry args={[1.3, 1.6, 1.4, 16]} /><meshStandardMaterial color="#f4efe2" metalness={0.3} roughness={0.4} /></mesh>
-        <mesh position={[0, 2.35, 0]}><sphereGeometry args={[0.9, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2]} /><meshStandardMaterial color="#d9cfb8" metalness={0.4} roughness={0.35} /></mesh>
-        {[0, 1, 2, 3].map((i) => { const a = (i * Math.PI) / 2 + Math.PI / 4; return (
-          <mesh key={i} position={[Math.cos(a) * 1.7, 0.45, Math.sin(a) * 1.7]} rotation={[Math.sin(a) * 0.5, 0, -Math.cos(a) * 0.5]}>
-            <cylinderGeometry args={[0.07, 0.07, 1.6, 6]} /><meshStandardMaterial color="#536F59" /></mesh>); })}
-        <mesh ref={plume} position={[0, -0.6, 0]} rotation={[Math.PI, 0, 0]}><coneGeometry args={[0.55, 2.4, 16, 1, true]} /><meshBasicMaterial color="#ffb36b" transparent opacity={0.6} depthWrite={false} /></mesh>
-      </group>
-    </group>
-  );
+  const scanning = ["SITE ASSESSMENT", "DIVERSION", "LANDING APPROACH"].includes(snap.phase) && f.truth.agl < 900;
+  return <group ref={g}><MarsLander throttle={f.actuators.throttle} lateral={f.actuators.lateral} torque={f.actuators.torque} labels={labels} lidarScanning={scanning} /></group>;
 }
 
-function Follow({ snap, follow }: { snap: TouchdownSnapshot; follow: boolean }) {
-  const { camera, controls } = useThree() as any;
-  const last = useRef(new THREE.Vector3());
-  useFrame(() => {
-    if (!follow || !controls) return;
-    const p = toV(snap.frame.truth.position);
-    const d = p.clone().sub(last.current);
-    camera.position.add(d); controls.target.add(d); last.current.copy(p);
-    controls.update();
+/** Relay orbiter drawn far closer than its real ~300 km orbit so it can share the frame; the link is animated. */
+function Orbiter({ landerPos, labels }: { landerPos: React.MutableRefObject<THREE.Vector3>; labels: boolean }) {
+  const g = useRef<THREE.Group>(null!);
+  const pulses = useRef<THREE.Mesh[]>([]);
+  const line = useRef<any>(null);
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime;
+    const lp = landerPos.current;
+    g.current.position.set(lp.x - 260 + Math.sin(t * 0.03) * 120, Math.max(lp.y + 420, 650), lp.z - 160 + Math.cos(t * 0.03) * 60);
+    g.current.lookAt(lp);
+    const a = g.current.position, b = lp;
+    if (line.current) line.current.geometry.setPositions([a.x, a.y, a.z, b.x, b.y, b.z]);
+    pulses.current.forEach((m, i) => { if (!m) return; const k = ((t * 0.35 + i / 4) % 1); m.position.lerpVectors(b, a, k); });
   });
-  useEffect(() => { last.current.copy(toV(snap.frame.truth.position)); }, [follow]); // eslint-disable-line
-  return null;
+  return (
+    <>
+      <group ref={g} scale={3}><group rotation={[Math.PI / 2, 0, 0]}><RelayOrbiter labels={labels} /></group></group>
+      <Line ref={line} points={[[0, 0, 0], [0, 1, 0]]} color="#4C6EF5" lineWidth={1} transparent opacity={0.45} dashed dashSize={6} gapSize={6} />
+      {[0, 1, 2, 3].map((i) => <mesh key={i} ref={(m) => { if (m) pulses.current[i] = m; }}><sphereGeometry args={[1.6, 10, 8]} /><meshBasicMaterial color="#748FFC" /></mesh>)}
+    </>
+  );
 }
 
 const path = (pts?: number[][]) => (pts && pts.length > 1 ? pts.map(toV) : null);
 
-export default function TouchdownScene({ snap, scene, decisions, follow, exaggeration = 4 }: { snap: TouchdownSnapshot | null; scene: any; decisions: any[]; follow: boolean; exaggeration?: number }) {
+export default function TouchdownScene({ snap, scene, decisions, cam, labels, overlay, showPaths }:
+  { snap: TouchdownSnapshot | null; scene: any; decisions: any[]; cam: CamMode; labels: boolean; overlay: "none" | "slope" | "hazard"; showPaths: boolean }) {
+  const G = useGround(scene, overlay);
+  const reg = useMemo(() => regolith("mars"), []);
+  const mats = useMemo(() => [1, 2].map(() => { const m = reg.map.clone(), n = reg.normal.clone(); m.needsUpdate = n.needsUpdate = true;
+    return new THREE.MeshStandardMaterial({ vertexColors: true, map: m, normalMap: n, normalScale: new THREE.Vector2(1.3, 1.3), roughness: 0.96 }); }), [reg]);
+  const dust = useDust({ max: 3000, gravity: 3.72, drag: 1.2, color: "#c79c74", size: 0.6 });
+  const landerPos = useRef(snap ? toV(snap.frame.truth.position) : new THREE.Vector3());
   const lastDiv = [...(decisions || [])].reverse().find((d) => d.details?.alternatives);
-  const actual = path(snap?.actual_trajectory), predicted = path(snap?.predicted_trajectory), desired = path(snap?.desired_trajectory),
-    mpc = path(snap?.mpc_prediction), est = path(snap?.estimated_trajectory);
   const tgt = snap?.frame?.target, orig = scene?.original_target;
-  const start = snap ? toV(snap.frame.truth.position) : new THREE.Vector3(0, 20, 0);
+  const heading = snap ? Math.atan2(snap.frame.truth.velocity[1], snap.frame.truth.velocity[0]) : 0;
+  const hazardCells = overlay === "hazard" ? (scene.perceived?.cells || []) : [];
+  const hazardGeom = useMemo(() => {
+    if (!hazardCells.length) return null;
+    const pos: number[] = [], col: number[] = []; const c = new THREE.Color();
+    const mean = hazardCells.reduce((a: number, v: number[]) => a + v[2], 0) / hazardCells.length;
+    hazardCells.forEach((v: number[]) => { pos.push(v[0], G.ground(v[0], v[1]) + 0.4, -v[1]); ramp(Math.abs(v[2] - G.ground(v[0], v[1])) / 1.0, c); col.push(c.r, c.g, c.b); });
+    void mean;
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3)); return g;
+  }, [hazardCells, G]);
   return (
-    <Canvas shadows camera={{ position: [start.x + 60, start.y + 25, start.z + 70], fov: 45, near: 0.1, far: 5000 }} dpr={[1, 1.75]}>
-      <color attach="background" args={["#efe9dc"]} />
-      <fog attach="fog" args={["#efe9dc", 180, 900]} />
-      <hemisphereLight args={["#fff8ec", "#8a6a4d", 0.7]} />
-      <directionalLight position={[-120, 200, 80]} intensity={1.6} castShadow />
-      {scene && <Terrain scene={scene} />}
-      {scene && <Rocks rocks={scene.rocks || []} />}
-      {orig && <mesh position={toV([orig[0], orig[1], orig[2] + 0.5])} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[1.6, 2.0, 48]} /><meshBasicMaterial color="#849084" side={THREE.DoubleSide} /></mesh>}
-      {tgt && <mesh position={toV([tgt[0], tgt[1], tgt[2] + 0.6])} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[0.9, 1.4, 48]} /><meshBasicMaterial color="#536F59" side={THREE.DoubleSide} /></mesh>}
-      {snap?.frame?.predicted_touchdown && <mesh position={toV(snap.frame.predicted_touchdown)}><sphereGeometry args={[0.6, 16, 16]} /><meshBasicMaterial color="#D69B4D" /></mesh>}
-      {lastDiv?.details?.alternatives?.map((a: any, i: number) => (
-        <mesh key={i} position={toV([a.x, a.y, (tgt?.[2] ?? 0) + 0.8])}><boxGeometry args={[0.6, 0.15, 0.6]} /><meshBasicMaterial color={a.feasible ? "#648C65" : "#C76C64"} /></mesh>
-      ))}
-      {actual && <Line points={actual} color="#26372D" lineWidth={2.2} />}
-      {est && <Line points={est} color="#7798A3" lineWidth={1.2} dashed dashSize={1} gapSize={0.6} />}
-      {desired && <Line points={desired} color="#779477" lineWidth={1.5} />}
-      {predicted && <Line points={predicted} color="#D69B4D" lineWidth={1.8} dashed dashSize={1.2} gapSize={0.8} />}
-      {mpc && <Line points={mpc} color="#7798A3" lineWidth={2.4} />}
-      {snap && <Lander snap={snap} exaggeration={exaggeration} />}
-      <OrbitControls makeDefault enableDamping target={[start.x, start.y * 0.6, start.z]} />
-      {snap && <Follow snap={snap} follow={follow} />}
+    <Canvas shadows dpr={[1, 1.75]} camera={{ fov: 48, near: 0.3, far: 9000, position: [-800, 3200, 600] }}>
+      <SkyDome horizon="#d8ae86" zenith="#8b7262" sunDir={SUN} radius={7000} />
+      <fog attach="fog" args={["#cfa682", 600, 4200]} />
+      <hemisphereLight args={["#f2d9bd", "#5b3d29", 0.55]} />
+      <FollowSun subject={() => landerPos.current} direction={SUN} intensity={2.4} color="#fff0da" size={25} />
+      <directionalLight position={[-3000, 3300, 2700]} intensity={0.6} color="#fff0da" />
+      <mesh geometry={G.coarse} material={mats[1]} receiveShadow />
+      <mesh geometry={G.detail} material={mats[0]} receiveShadow />
+      <Rocks rocks={G.rocks} color="#5f4434" />
+      {hazardGeom && <points geometry={hazardGeom}><pointsMaterial vertexColors size={1.6} sizeAttenuation /></points>}
+      {orig && <mesh position={toV([orig[0], orig[1], G.ground(orig[0], orig[1]) + 0.3])} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[9, 10, 64]} /><meshBasicMaterial color="#ffffff" transparent opacity={0.7} /></mesh>}
+      {tgt && <group position={toV([tgt[0], tgt[1], G.ground(tgt[0], tgt[1]) + 0.35])}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[4, 5, 64]} /><meshBasicMaterial color="#4C6EF5" /></mesh>
+        <mesh position={[0, 30, 0]}><cylinderGeometry args={[0.15, 0.15, 60, 8]} /><meshBasicMaterial color="#748FFC" transparent opacity={0.35} /></mesh></group>}
+      {lastDiv?.details?.alternatives?.map((a: any, i: number) => { const c = new THREE.Color(); ramp(1 - Math.max(0, Math.min(1, a.score)), c); return (
+        <mesh key={i} position={toV([a.x, a.y, G.ground(a.x, a.y) + 0.5])} rotation={[-Math.PI / 2, 0, 0]}>
+          <circleGeometry args={[a.feasible ? 2.4 : 1.6, 24]} /><meshBasicMaterial color={a.feasible ? c : "#E03131"} transparent opacity={0.85} /></mesh>); })}
+      {snap?.frame?.predicted_touchdown && <mesh position={toV([snap.frame.predicted_touchdown[0], snap.frame.predicted_touchdown[1], G.ground(snap.frame.predicted_touchdown[0], snap.frame.predicted_touchdown[1]) + 0.6])}><sphereGeometry args={[1.4, 16, 16]} /><meshBasicMaterial color="#F08C00" /></mesh>}
+      {showPaths && path(snap?.actual_trajectory) && <Line points={path(snap?.actual_trajectory)!} color="#ffffff" lineWidth={2.2} />}
+      {showPaths && path(snap?.estimated_trajectory) && <Line points={path(snap?.estimated_trajectory)!} color="#1C7ED6" lineWidth={1.2} dashed dashSize={8} gapSize={5} />}
+      {showPaths && path(snap?.desired_trajectory) && <Line points={path(snap?.desired_trajectory)!} color="#12B886" lineWidth={1.6} />}
+      {showPaths && path(snap?.predicted_trajectory) && <Line points={path(snap?.predicted_trajectory)!} color="#F08C00" lineWidth={2} dashed dashSize={10} gapSize={6} />}
+      {showPaths && path(snap?.mpc_prediction) && <Line points={path(snap?.mpc_prediction)!} color="#4C6EF5" lineWidth={3} />}
+      {dust.points}
+      {snap && <Lander snap={snap} labels={labels} dust={dust} ground={G.ground} pos={landerPos} />}
+      <Orbiter landerPos={landerPos} labels={labels} />
+      <CameraRig mode={cam} subject={() => landerPos.current} heading={heading} chaseDist={13} chaseHeight={4.5} lookAhead={6} overheadHeight={140}
+        observer={tgt ? toV([tgt[0] + 45, tgt[1] - 30, G.ground(tgt[0] + 45, tgt[1] - 30) + 2]) : undefined} />
     </Canvas>
   );
 }

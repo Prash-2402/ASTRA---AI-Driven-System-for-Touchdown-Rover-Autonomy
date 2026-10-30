@@ -7,6 +7,7 @@ const Overview = lazy(() => import("./application/pages/Overview"));
 const MissionControl = lazy(() => import("./application/pages/MissionControl"));
 const Touchdown = lazy(() => import("./modules/touchdown/TouchdownPage"));
 const Rover = lazy(() => import("./modules/rover/RoverPage"));
+const Moon = lazy(() => import("./modules/moon/MoonPage"));
 const ScenarioBuilder = lazy(() => import("./application/pages/ScenarioBuilder"));
 const FaultInjection = lazy(() => import("./application/pages/FaultInjection"));
 const ControllerComparison = lazy(() => import("./application/pages/ControllerComparison"));
@@ -14,9 +15,6 @@ const RLLab = lazy(() => import("./application/pages/RLLab"));
 const ExperimentLab = lazy(() => import("./application/pages/ExperimentLab"));
 const Results = lazy(() => import("./application/pages/Results"));
 const Telemetry = lazy(() => import("./application/pages/Telemetry"));
-const Architecture = lazy(() => import("./application/pages/Architecture"));
-const Documentation = lazy(() => import("./application/pages/Documentation"));
-const Settings = lazy(() => import("./application/pages/Settings"));
 
 const Loading = () => <div className="p-10 eyebrow">Loading…</div>;
 
@@ -30,6 +28,7 @@ export default function App() {
           <Route path="mission-control" element={<MissionControl />} />
           <Route path="touchdown" element={<Touchdown />} />
           <Route path="rover" element={<Rover />} />
+          <Route path="moon" element={<Moon />} />
           <Route path="scenarios" element={<ScenarioBuilder />} />
           <Route path="faults" element={<FaultInjection />} />
           <Route path="comparison" element={<ControllerComparison />} />
@@ -37,10 +36,8 @@ export default function App() {
           <Route path="experiments" element={<ExperimentLab />} />
           <Route path="results" element={<Results />} />
           <Route path="telemetry" element={<Telemetry />} />
-          <Route path="architecture" element={<Architecture />} />
-          <Route path="documentation" element={<Documentation />} />
-          <Route path="settings" element={<Settings />} />
         </Route>
+        <Route path="/app/*" element={<Navigate to="/app" />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Suspense>
