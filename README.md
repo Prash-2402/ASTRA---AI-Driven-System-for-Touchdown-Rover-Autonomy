@@ -11,6 +11,7 @@ A physics-based research platform for autonomous planetary landing and rover aut
   regolith dust, lunar terrain (separate physics from the Mars modules).
 - **Research tooling** — matched-seed experiments, held-out guard, Wilson CIs, McNemar/Wilcoxon paired tests,
   PostgreSQL records, telemetry archives, CSV/JSON/PDF exports, decision audit logs.
+- **Hurdle: The Sensor That Lies** — two-sided CUSUM innovation monitor for creeping sensor bias detection, EKF sensor isolation, and out-of-distribution PPO policy guard with fallback to classical control.
 - **Interface** — cinematic WebGL landing page (GPU-baked Mars globe) and a light, modern application
   (React, Three.js/R3F, Recharts, Zustand) with detailed 3D vehicle models and camera modes.
 
@@ -30,6 +31,7 @@ or `docker compose up --build`. Full instructions: [docs/INSTALLATION.md](docs/I
 | Rover simulation, autonomy, faults, FSM baseline, safety | working, tested |
 | Experiments | engine working; held-out batch results stored in the database (see Experiment Lab for N completed) |
 | Moon landing module | working, tested |
-| Tests | 60 automated tests passing |
+| Hurdle: The Sensor That Lies | CUSUM drift detection, EKF sensor isolation, OOD policy guard | working, tested |
+| Tests | 66 automated tests passing |
 
 Limitations: [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
