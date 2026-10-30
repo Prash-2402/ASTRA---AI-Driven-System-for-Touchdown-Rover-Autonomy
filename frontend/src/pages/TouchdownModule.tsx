@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { Play, Pause, Square, RefreshCw, Settings2, Target, AlertTriangle, CheckCircle2, ChevronDown } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import './TouchdownModule.css'
+import PlanetarySimulation3D from '../components/PlanetarySimulation3D'
 
 type Controller = 'PID' | 'MPC' | 'PPO'
 type SimState = 'idle' | 'running' | 'paused' | 'landed' | 'failed'
@@ -22,236 +23,6 @@ const CONTROLLERS: { id: Controller; label: string; desc: string; color: string 
 ]
 
 const ENVIRONMENTS = ['Mars — Jezero Crater', 'Moon — South Pole', 'Mars — Hellas Basin']
-
-/* ─── Simulation Viewport ─── */
-const SimViewport: React.FC<{
-  simState: SimState
-  altitude: number
-  trajectoryPoints: { x: number; y: number }[]
-  controller: Controller
-}> = ({ simState, altitude, trajectoryPoints, controller }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const animRef = useRef<number>(0)
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')!
-
-    const resize = () => {
-      canvas.width = canvas.offsetWidth * devicePixelRatio
-      canvas.height = canvas.offsetHeight * devicePixelRatio
-      ctx.scale(devicePixelRatio, devicePixelRatio)
-    }
-    resize()
-    const ro = new ResizeObserver(resize)
-    ro.observe(canvas)
-
-    let t = 0
-    const draw = () => {
-      const W = canvas.offsetWidth
-      const H = canvas.offsetHeight
-      ctx.clearRect(0, 0, W, H)
-
-      // Sky gradient
-      const sky = ctx.createLinearGradient(0, 0, 0, H)
-      sky.addColorStop(0, '#1A0F0A')
-      sky.addColorStop(0.6, '#2D1A10')
-      sky.addColorStop(1, '#8B5A3A')
-      ctx.fillStyle = sky
-      ctx.fillRect(0, 0, W, H)
-
-      // Stars
-      ctx.fillStyle = 'rgba(255,248,235,0.6)'
-      const starSeed = [0.15, 0.32, 0.48, 0.62, 0.78, 0.22, 0.55, 0.88, 0.11, 0.73]
-      starSeed.forEach((s, i) => {
-        ctx.beginPath()
-        ctx.arc(s * W, (i / starSeed.length) * H * 0.55, 0.8 + s * 0.6, 0, Math.PI * 2)
-        ctx.fill()
-      })
-
-      // Ground
-      const groundY = H * 0.78
-      const ground = ctx.createLinearGradient(0, groundY, 0, H)
-      ground.addColorStop(0, '#A0633C')
-      ground.addColorStop(0.3, '#8B5230')
-      ground.addColorStop(1, '#5C3018')
-      ctx.fillStyle = ground
-      ctx.fillRect(0, groundY, W, H - groundY)
-
-      // Terrain features
-      ctx.fillStyle = 'rgba(90,50,25,0.6)'
-      ctx.beginPath()
-      ctx.ellipse(W * 0.15, groundY, 40, 12, 0, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.beginPath()
-      ctx.ellipse(W * 0.75, groundY + 4, 55, 16, 0, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.beginPath()
-      ctx.ellipse(W * 0.55, groundY, 28, 9, 0, 0, Math.PI * 2)
-      ctx.fill()
-
-      // Hazard zones
-      ctx.strokeStyle = 'rgba(199,108,100,0.5)'
-      ctx.lineWidth = 1.5
-      ctx.setLineDash([4, 4])
-      ctx.beginPath()
-      ctx.ellipse(W * 0.22, groundY - 2, 38, 10, 0, 0, Math.PI * 2)
-      ctx.stroke()
-      ctx.beginPath()
-      ctx.ellipse(W * 0.68, groundY - 4, 45, 12, 0, 0, Math.PI * 2)
-      ctx.stroke()
-
-      // Safe landing zone
-      ctx.strokeStyle = 'rgba(100,140,101,0.8)'
-      ctx.setLineDash([])
-      ctx.lineWidth = 1.5
-      const lzX = W * 0.48
-      ctx.beginPath()
-      ctx.arc(lzX, groundY - 2, 28, 0, Math.PI * 2)
-      ctx.stroke()
-      ctx.beginPath()
-      ctx.arc(lzX, groundY - 2, 12, 0, Math.PI * 2)
-      ctx.stroke()
-      ctx.beginPath()
-      ctx.arc(lzX, groundY - 2, 4, 0, Math.PI * 2)
-      ctx.fillStyle = 'rgba(100,140,101,0.7)'
-      ctx.fill()
-
-      // Landing zone label
-      ctx.fillStyle = 'rgba(100,140,101,0.9)'
-      ctx.font = `${9 / devicePixelRatio}px Space Mono, monospace`
-      ctx.textAlign = 'center'
-      ctx.fillText('LZ-ALPHA', lzX, groundY + 16)
-
-      // Trajectory line
-      if (trajectoryPoints.length > 1) {
-        ctx.strokeStyle = 'rgba(214,155,77,0.65)'
-        ctx.lineWidth = 1.5
-        ctx.setLineDash([6, 4])
-        ctx.beginPath()
-        trajectoryPoints.forEach((p, i) => {
-          const px = p.x * W
-          const py = p.y * H
-          if (i === 0) ctx.moveTo(px, py)
-          else ctx.lineTo(px, py)
-        })
-        ctx.stroke()
-        ctx.setLineDash([])
-      }
-
-      // Lander position
-      const landFraction = Math.max(0, Math.min(1, 1 - altitude / 2000))
-      const landerX = W * 0.48 + Math.sin(t * 0.8) * W * 0.02 * (1 - landFraction)
-      const landerY = groundY - 30 - (H * 0.55) * (1 - landFraction)
-
-      if (simState !== 'idle') {
-        // Thruster flame
-        if (simState === 'running' || simState === 'paused') {
-          const flameH = 20 + Math.sin(t * 8) * 4
-          const flame = ctx.createRadialGradient(landerX, landerY + 18, 0, landerX, landerY + 18, flameH)
-          flame.addColorStop(0, 'rgba(255,220,140,0.9)')
-          flame.addColorStop(0.4, 'rgba(214,155,77,0.7)')
-          flame.addColorStop(1, 'rgba(199,108,100,0)')
-          ctx.beginPath()
-          ctx.ellipse(landerX, landerY + 18, 8, flameH, 0, 0, Math.PI * 2)
-          ctx.fillStyle = flame
-          ctx.fill()
-        }
-
-        // Lander body
-        ctx.fillStyle = '#536F59'
-        ctx.beginPath()
-        ctx.roundRect(landerX - 16, landerY - 18, 32, 24, 4)
-        ctx.fill()
-        ctx.fillStyle = '#648C65'
-        ctx.beginPath()
-        ctx.roundRect(landerX - 12, landerY - 14, 24, 16, 3)
-        ctx.fill()
-
-        // Sensor dome
-        ctx.fillStyle = '#779477'
-        ctx.beginPath()
-        ctx.ellipse(landerX, landerY - 18, 10, 6, 0, 0, Math.PI * 2)
-        ctx.fill()
-
-        // Solar panels
-        ctx.fillStyle = 'rgba(119,152,163,0.85)'
-        ctx.fillRect(landerX - 42, landerY - 12, 24, 8)
-        ctx.fillRect(landerX + 18, landerY - 12, 24, 8)
-
-        // Legs
-        ctx.strokeStyle = '#AFC3A7'
-        ctx.lineWidth = 2
-        ctx.setLineDash([])
-        ctx.beginPath()
-        ctx.moveTo(landerX, landerY + 6)
-        ctx.lineTo(landerX - 20, landerY + 22)
-        ctx.moveTo(landerX, landerY + 6)
-        ctx.lineTo(landerX + 20, landerY + 22)
-        ctx.stroke()
-
-        // Altitude indicator
-        ctx.strokeStyle = 'rgba(214,155,77,0.5)'
-        ctx.lineWidth = 1
-        ctx.setLineDash([3, 3])
-        ctx.beginPath()
-        ctx.moveTo(landerX + 28, landerY)
-        ctx.lineTo(landerX + 28, groundY)
-        ctx.stroke()
-        ctx.setLineDash([])
-
-        ctx.fillStyle = 'rgba(214,155,77,0.9)'
-        ctx.font = `${9 / devicePixelRatio}px Space Mono, monospace`
-        ctx.textAlign = 'left'
-        ctx.fillText(`${Math.round(altitude)}m`, landerX + 32, landerY + 4)
-
-        // Landed indicator
-        if (simState === 'landed') {
-          ctx.fillStyle = 'rgba(100,140,101,0.9)'
-          ctx.font = `${11 / devicePixelRatio}px Inter, sans-serif`
-          ctx.textAlign = 'center'
-          ctx.fillText('✓ LANDED SAFELY', W / 2, H * 0.25)
-        }
-      }
-
-      // EKF uncertainty ellipse
-      if (simState === 'running') {
-        const unc = 12 + Math.sin(t * 0.5) * 3
-        ctx.strokeStyle = 'rgba(119,152,163,0.4)'
-        ctx.lineWidth = 1
-        ctx.setLineDash([2, 4])
-        ctx.beginPath()
-        ctx.ellipse(landerX, landerY, unc, unc * 0.7, 0, 0, Math.PI * 2)
-        ctx.stroke()
-        ctx.setLineDash([])
-      }
-
-      // HUD overlay
-      ctx.fillStyle = 'rgba(8,8,16,0.72)'
-      ctx.beginPath()
-      ctx.roundRect(12, 12, 130, 60, 8)
-      ctx.fill()
-      ctx.fillStyle = 'rgba(175,195,167,0.85)'
-      ctx.font = `${10 / devicePixelRatio}px Space Mono, monospace`
-      ctx.textAlign = 'left'
-      ctx.fillText(`MODE: ${controller}`, 20, 30)
-      ctx.fillText(`STATE: ${simState.toUpperCase()}`, 20, 46)
-      ctx.fillText(`t = ${Math.round(t * 10) / 10}s`, 20, 62)
-
-      t += 0.016
-      animRef.current = requestAnimationFrame(draw)
-    }
-
-    animRef.current = requestAnimationFrame(draw)
-    return () => {
-      cancelAnimationFrame(animRef.current)
-      ro.disconnect()
-    }
-  }, [simState, altitude, trajectoryPoints, controller])
-
-  return <canvas ref={canvasRef} className="sim-canvas" />
-}
 
 /* ─── Telemetry Chart ─── */
 const TelemetryChart: React.FC<{ data: TelemetryPoint[]; dataKey: keyof TelemetryPoint; label: string; color: string; unit: string }> = ({
@@ -476,11 +247,17 @@ const TouchdownModule: React.FC = () => {
         </div>
 
         <div className="viewport-canvas-wrap">
-          <SimViewport
+          <PlanetarySimulation3D
             simState={simState}
             altitude={altitude}
             trajectoryPoints={trajectoryPoints.current}
             controller={controller}
+            environment={environment}
+            throttle={throttle}
+            fuel={fuel}
+            velocityV={velocityV}
+            velocityH={velocityH}
+            elapsed={elapsed}
           />
         </div>
 
