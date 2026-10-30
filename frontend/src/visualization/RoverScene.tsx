@@ -1,9 +1,9 @@
-import { Line } from "@react-three/drei";
+﻿import { Line } from "@react-three/drei";
 import { Canvas, ThreeEvent, useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import type { RoverSnapshot } from "../services/types";
-import { CameraRig, CamMode, FollowSun, Rocks, SkyDome, ramp, useDust } from "./lib/scene";
+import { CameraRig, CamMode, FollowSun, Rocks, SkyDome, StableLine, ramp, useDust } from "./lib/scene";
 import { bilinear, gridGeometry } from "./lib/terrainMesh";
 import { fbmField, regolith } from "./lib/textures";
 import MarsLander from "./models/MarsLander";
@@ -157,10 +157,15 @@ export default function RoverScene({ snap, scene, cam, labels, lidar, overlay, c
   const actual = snap?.actual_path && snap.actual_path.length > 1 ? snap.actual_path.map((p) => V(p, 0.1)) : null;
   const est = snap?.estimated_path && snap.estimated_path.length > 1 ? snap.estimated_path.map((p) => V(p, 0.12)) : null;
   const old = snap?.path_history ? snap.path_history.slice(0, -1).filter((h) => h.path?.length > 1) : [];
-  const lidarGeom = useMemo(() => {
+  // one persistent GPU buffer for the lidar cloud, refilled in place (was a new geometry every telemetry update)
+  const lidarGeom = useMemo(() => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(3 * 2000), 3)); g.setDrawRange(0, 0); return g; }, []);
+  useEffect(() => () => lidarGeom.dispose(), [lidarGeom]);
+  useEffect(() => {
     const pts: number[][] = (snap as any)?.lidar || [];
-    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pts.flatMap((p) => [p[0], p[2], -p[1]])), 3)); return g;
-  }, [(snap as any)?.lidar]);
+    const a = lidarGeom.getAttribute("position") as THREE.BufferAttribute; const n = Math.min(pts.length, 2000);
+    for (let k = 0; k < n; k++) a.setXYZ(k, pts[k][0], pts[k][2], -pts[k][1]);
+    a.needsUpdate = true; lidarGeom.setDrawRange(0, n); lidarGeom.computeBoundingSphere();
+  }, [(snap as any)?.lidar, lidarGeom]);
   const goal = snap?.goal ?? t.target;
   const goalV = V(goal, 0);
   return (
@@ -191,10 +196,10 @@ export default function RoverScene({ snap, scene, cam, labels, lidar, overlay, c
         <mesh position={[0.25, 2.2, 0]}><boxGeometry args={[0.5, 0.3, 0.01]} /><meshStandardMaterial color="#6FD3A8" emissive="#6FD3A8" emissiveIntensity={0.4} /></mesh>
       </group>}
       {ops && <mesh position={V(goal, 0.06)} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[0.35, 0.5, 32]} /><meshBasicMaterial color="#6FD3A8" /></mesh>}
-      {mode === "traverse" && old.map((h, i) => <Line key={i} points={h.path.map((p) => V(p, 0.12))} color="#6FD3A8" lineWidth={1} transparent opacity={0.25} />)}
-      {mode === "traverse" && planned && <Line points={planned} color="#6FD3A8" lineWidth={3.2} />}
-      {mode === "traverse" && actual && <Line points={actual} color="#ffffff" lineWidth={2} />}
-      {mode === "traverse" && est && <Line points={est} color="#67B7F7" lineWidth={1.4} dashed dashSize={0.4} gapSize={0.25} />}
+      {mode === "traverse" && old.map((h, i) => <StableLine key={i} points={h.path.map((p) => V(p, 0.12))} color="#6FD3A8" lineWidth={1} opacity={0.25} />)}
+      {mode === "traverse" && planned && <StableLine points={planned} color="#6FD3A8" lineWidth={3.2} />}
+      {mode === "traverse" && actual && <StableLine points={actual} color="#ffffff" lineWidth={2} />}
+      {mode === "traverse" && est && <StableLine points={est} color="#67B7F7" lineWidth={1.4} dashed dashSize={0.4} gapSize={0.25} />}
       {mode === "traverse" && lidar && <points geometry={lidarGeom}><pointsMaterial color="#67F7E1" size={0.07} sizeAttenuation /></points>}
       {dust.points}
       {snap && <TraverseRover snap={snap} labels={labels} roverPos={roverPos} />}

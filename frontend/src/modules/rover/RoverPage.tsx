@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+﻿import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { ErrorVsSigma, Series } from "../../charts/Series";
 import SimControls from "../../components/SimControls";
 import { CamSwitch, PhaseTimeline, Toggle } from "../../components/SimViewport";
@@ -34,13 +34,17 @@ export default function RoverPage() {
   const ingest = useSim((s) => s.ingest);
   const [scene, setScene] = useState<any>(null);
   const [cam, setCam] = useState<CamMode>("chase");
+  const stage = useRef<HTMLDivElement>(null);
+  const [fs, setFs] = useState(false);
+  useEffect(() => { const h = () => setFs(document.fullscreenElement === stage.current); document.addEventListener("fullscreenchange", h); return () => document.removeEventListener("fullscreenchange", h); }, []);
+  const toggleFs = () => { if (document.fullscreenElement) document.exitFullscreen(); else stage.current?.requestFullscreen?.(); };
   const [labels, setLabels] = useState(false);
   const [lidar, setLidar] = useState(true);
   const [overlay, setOverlay] = useState<Overlay>("none");
   const [placing, setPlacing] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [cfg, setCfg] = useState({ seed: 7, terrain: 1, controller: "astra", battery: 0.8, speed: 0.4, kinds: TASK_KINDS.map((k) => k[0]) });
+  const [cfg, setCfg] = useState({ seed: 7, terrain: 1, controller: "astra", battery: 0.8, speed: 0.6, kinds: TASK_KINDS.map((k) => k[0]) });
   const [envp, setEnvp] = useState({ sandstorm: 0, wind_speed: 4, comms: true });
   const terrains = usePoll(() => api.get("/api/rover/terrain"), 0);
   const decisions = usePoll(() => api.get("/api/rover/decisions"), 2500, [live?.run_uid]);
@@ -93,7 +97,8 @@ export default function RoverPage() {
       <div className="panel px-5 py-3 mb-5"><PhaseTimeline phases={mode === "SHELTERING" ? MODES : MODES.filter((m) => m !== "SHELTERING")} current={mode} failed={!!live?.result && !live.result.success} /></div>
       <div className="grid xl:grid-cols-[1fr_350px] gap-5">
         <div className="space-y-5 min-w-0">
-          <div className="panel overflow-hidden relative" style={{ height: "66vh", minHeight: 460 }}>
+          <div ref={stage} className="panel overflow-hidden relative" style={{ height: fs ? "100vh" : "66vh", minHeight: 460, borderRadius: fs ? 0 : undefined }}>
+            {fs && <div className="absolute top-[54px] right-3 z-10 hud px-2 py-1"><SimControls module="rover" status={live?.status} speed={live?.speed} /></div>}
             {scene ? <Suspense fallback={<div className="p-6 eyebrow">Loading Mars terrain…</div>}>
               <RoverScene snap={live} scene={scene} cam={cam} labels={labels} lidar={lidar} overlay={overlay} costmap={costmap.data} placing={placing} onPlace={place} /></Suspense>
               : <div className="h-full grid place-items-center eyebrow">Loading Mars terrain…</div>}
@@ -102,6 +107,7 @@ export default function RoverPage() {
               <div className="flex flex-wrap gap-2">
                 <button className="hud px-3 py-1.5 text-[11.5px] text-[var(--danger)]" onClick={dropOnRoute}>⚠ Drop obstacle on route</button>
                 <button className={`hud px-3 py-1.5 text-[11.5px] ${placing ? "!bg-[var(--danger)] !text-white" : "text-[var(--ink-secondary)]"}`} onClick={() => setPlacing(!placing)}>{placing ? "● Click the ground · done" : "＋ Place obstacles by clicking"}</button>
+                <button className="hud px-3 py-1.5 text-[11.5px] text-[var(--ink-secondary)]" onClick={toggleFs}>{fs ? "⤡ Exit fullscreen" : "⛶ Fullscreen"}</button>
                 <Toggle on={labels} onClick={() => setLabels(!labels)}>Components</Toggle>
                 <Toggle on={lidar} onClick={() => setLidar(!lidar)}>LiDAR</Toggle>
                 <div className="seg hud !p-[3px]">{(["none", "cost", "slope"] as Overlay[]).map((o) => <button key={o} className={overlay === o ? "on" : ""} onClick={() => setOverlay(o)}>{o === "none" ? "No overlay" : o === "cost" ? "Cost" : "Slope"}</button>)}</div>

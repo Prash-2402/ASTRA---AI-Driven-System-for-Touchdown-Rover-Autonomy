@@ -81,12 +81,20 @@ varying vec3 vNV; varying vec3 vNW;
 void main(){ vNV = normalize(normalMatrix*normal); vNW = normalize(mat3(modelMatrix)*normal);
   gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`;
 const photoFrag = /* glsl */ `
-uniform sampler2D uMap; uniform vec3 uSun; varying vec3 vNV; varying vec3 vNW;
+uniform sampler2D uMap; uniform vec3 uSun; uniform float uRot; varying vec3 vNV; varying vec3 vNW;
+const float PI = 3.14159265;
+// the photo's own terminator (lit from the upper right); divided out at the source, re-applied in place
+float shade(vec3 v){ return 0.1 + 0.9 * smoothstep(-0.3, 0.75, dot(v, normalize(vec3(0.6, 0.5, 0.62)))); }
 void main(){
-  // the photograph carries its own day/night terminator, so it is shown as photographed
-  vec2 uv = vec2(0.5) + normalize(vNV).xy * 0.496;
-  vec3 c = texture2D(uMap, uv).rgb;
-  gl_FragColor = vec4(c * 1.08, 1.0);
+  // spin: shift longitude, mirror across the limb (the photo is one hemisphere), keep lighting fixed
+  vec3 n = normalize(vNV);
+  float lat = asin(clamp(n.y, -1.0, 1.0));
+  float lon = mod(atan(n.x, n.z) + uRot + PI, 2.0 * PI) - PI;
+  if (abs(lon) > 0.5 * PI) lon = sign(lon) * PI - lon;
+  vec3 s = vec3(sin(lon) * cos(lat), n.y, cos(lon) * cos(lat));
+  vec2 uv = vec2(0.5) + s.xy * 0.496;
+  vec3 c = texture2D(uMap, uv).rgb / max(shade(s), 0.3) * shade(n);
+  gl_FragColor = vec4(min(c, vec3(1.0)) * 1.08, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }`;
@@ -103,7 +111,7 @@ function Planet() {
   const surface = useMemo<THREE.Material>(() => (maps
     ? new THREE.MeshStandardMaterial({ map: maps.color, bumpMap: maps.height, bumpScale: 9, roughness: 0.96, metalness: 0 })
     : new THREE.ShaderMaterial({ vertexShader: photoVert, fragmentShader: photoFrag,
-        uniforms: { uMap: { value: photo }, uSun: { value: new THREE.Vector3(5, 1.6, 1.8) } } })), [maps, photo]);
+        uniforms: { uMap: { value: photo }, uRot: { value: 0 }, uSun: { value: new THREE.Vector3(5, 1.6, 1.8) } } })), [maps, photo]);
   const spin = useRef<THREE.Mesh>(null!);
   const group = useRef<THREE.Group>(null!);
   const clouds = useRef<THREE.Mesh>(null!);
@@ -128,6 +136,8 @@ function Planet() {
     const s = g.scale.x + (target.current.z - g.scale.x) * Math.min(1, dt * 3);
     g.scale.setScalar(s);
     spin.current.rotation.y += dt * 0.045;           // sidereal rotation (visually accelerated)
+    const ru = (surface as THREE.ShaderMaterial).uniforms?.uRot;
+    if (ru) ru.value += dt * 0.12;                   // photo disc spin: one full turn ≈ 52 s
     clouds.current.rotation.y += dt * 0.052;
     state.camera.position.x = Math.sin(state.clock.elapsedTime * 0.05) * 0.15 + state.pointer.x * 0.12;
     state.camera.position.y = state.pointer.y * 0.08;

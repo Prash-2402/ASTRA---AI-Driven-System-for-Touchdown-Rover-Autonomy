@@ -27,6 +27,12 @@ class PurePursuitConfig:
     motor_peak: float = 10.8
     slip_limit: float = 0.35
     turn_in_place_deg: float = 70.0
+    # precise tracking (surface operations): continuous look-ahead point interpolated along the path at a
+    # speed-adaptive distance, gentler slow-down on bends. Off = the benchmark behaviour (waypoint look-ahead).
+    precise: bool = False
+    lookahead_min: float = 0.8
+    lookahead_gain: float = 1.0      # s: look-ahead = clip(gain * v, min, lookahead)
+    turn_slowdown: float = 1.8       # rad of heading error that would stop the rover (benchmark: 1.2)
 
 
 class PurePursuit:
@@ -45,7 +51,21 @@ class PurePursuit:
         while self.idx < len(P) - 1 and np.hypot(P[self.idx][0] - x, P[self.idx][1] - y) < L:
             self.idx += 1
         # closest-progress safeguard
-        return P[self.idx] if P else (x, y)
+        if not P:
+            return (x, y)
+        if self.cfg.precise and 0 < self.idx < len(P):
+            # slide continuously along the segment entering P[idx]: the point exactly L away (no waypoint jumps,
+            # no corner cutting)
+            a, b = np.asarray(P[self.idx - 1], float), np.asarray(P[self.idx], float)
+            d, f = b - a, a - np.array([x, y])
+            A, B, C = d @ d, 2 * f @ d, f @ f - L * L
+            disc = B * B - 4 * A * C
+            if A > 1e-9 and disc >= 0:
+                s = (-B + np.sqrt(disc)) / (2 * A)
+                if 0.0 <= s <= 1.0:
+                    p = a + s * d
+                    return (float(p[0]), float(p[1]))
+        return P[self.idx]
 
     def compute(self, pose, speed_factor: float, slip: float, wheel_health: np.ndarray,
                 gentle: bool = False) -> tuple[np.ndarray, np.ndarray, dict]:
@@ -57,10 +77,13 @@ class PurePursuit:
         x, y, psi = pose
         if not self.path or speed_factor <= 0:
             return np.zeros(6), np.full(6, c.wheel_torque) * wheel_health, {"v": 0.0, "w": 0.0, "alpha": 0.0}
-        lx, ly = self.lookahead_point(x, y, c.lookahead)
+        L = c.lookahead
+        if c.precise:
+            L = float(np.clip(c.lookahead_gain * getattr(self, "_v_last", c.v_max), c.lookahead_min, c.lookahead))
+        lx, ly = self.lookahead_point(x, y, L)
         alpha = float(wrap_angle(np.arctan2(ly - y, lx - x) - psi))
         Ld = max(np.hypot(lx - x, ly - y), 0.3)
-        v = c.v_max * speed_factor * max(0.25, 1 - abs(alpha) / 1.2)
+        v = c.v_max * speed_factor * max(0.25, 1 - abs(alpha) / (c.turn_slowdown if c.precise else 1.2))
         if slip > c.slip_limit:
             v *= max(0.4, 1 - (slip - c.slip_limit))
         if abs(alpha) > np.radians(c.turn_in_place_deg):
@@ -68,6 +91,7 @@ class PurePursuit:
             w = np.sign(alpha) * 0.5 * max(speed_factor, 0.4)
         else:
             w = 2 * np.sin(alpha) / Ld * v
+        self._v_last = v
         vl = (v - w * c.b_eff / 2) / c.wheel_radius
         vr = (v + w * c.b_eff / 2) / c.wheel_radius
         speeds = np.array([vl, vl, vl, vr, vr, vr])
