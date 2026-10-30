@@ -203,59 +203,20 @@ const LandingPage: React.FC = () => {
           <div className="touchdown-split-layout">
             {/* Visualizer Frame */}
             <div className="showcase-visual-frame">
-              <svg viewBox="0 0 320 230" className="lander-svg">
-                <defs>
-                  <radialGradient id="td-burn" cx="50%" cy="0%" r="80%">
-                    <stop offset="0%" stopColor="#E8D2B5" stopOpacity="0.95" />
-                    <stop offset="40%" stopColor="#590907" stopOpacity="0.8" />
-                    <stop offset="100%" stopColor="#300605" stopOpacity="0" />
-                  </radialGradient>
-                  <radialGradient id="td-ground-glow" cx="50%" cy="50%" r="50%">
-                    <stop offset="0%" stopColor="rgba(232, 210, 181, 0.25)" />
-                    <stop offset="100%" stopColor="transparent" />
-                  </radialGradient>
-                </defs>
-
-                {/* Ground glow */}
-                <ellipse cx="160" cy="202" rx="90" ry="12" fill="url(#td-ground-glow)" />
-
-                {/* Descent trajectory */}
-                <path d="M 230 15 Q 210 80 160 160" stroke="#E8D2B5" strokeWidth="1.5" strokeDasharray="5,4" fill="none" opacity="0.75" />
-
-                {/* Thruster flame */}
-                <ellipse cx="160" cy="178" rx="14" ry="22" fill="url(#td-burn)">
-                  <animate attributeName="ry" values="22;18;24;20;22" dur="0.6s" repeatCount="indefinite" />
-                </ellipse>
-
-                {/* Landing legs */}
-                <line x1="160" y1="145" x2="115" y2="192" stroke="#A5A79B" strokeWidth="2.5" strokeLinecap="round" />
-                <line x1="160" y1="145" x2="205" y2="192" stroke="#A5A79B" strokeWidth="2.5" strokeLinecap="round" />
-                <line x1="115" y1="192" x2="102" y2="192" stroke="#A5A79B" strokeWidth="2" strokeLinecap="round" />
-                <line x1="205" y1="192" x2="218" y2="192" stroke="#A5A79B" strokeWidth="2" strokeLinecap="round" />
-
-                {/* Lander chassis */}
-                <rect x="138" y="102" width="44" height="46" rx="5" fill="#41443D" stroke="#A5A79B" strokeWidth="1.5" />
-                <rect x="144" y="108" width="32" height="34" rx="4" fill="#171814" />
-
-                {/* Solar panels */}
-                <rect x="76" y="112" width="54" height="14" rx="2" fill="#5E7B88" opacity="0.9" />
-                <rect x="190" y="112" width="54" height="14" rx="2" fill="#5E7B88" opacity="0.9" />
-                <line x1="130" y1="119" x2="76" y2="119" stroke="#676A60" strokeWidth="1.5" />
-                <line x1="190" y1="119" x2="244" y2="119" stroke="#676A60" strokeWidth="1.5" />
-
-                {/* Sensor dome */}
-                <ellipse cx="160" cy="102" rx="16" ry="8" fill="#A5A79B" />
-
-                {/* Landing target reticle — Burgundy accent */}
-                <circle cx="160" cy="202" r="22" stroke="#590907" strokeWidth="2" fill="none" opacity="0.85" />
-                <circle cx="160" cy="202" r="10" stroke="#590907" strokeWidth="1.5" fill="none" opacity="0.9" />
-                <circle cx="160" cy="202" r="3" fill="#590907" />
-
-                {/* Technical annotations */}
-                <text x="32" y="96" fill="#A5A79B" fontSize="9" fontFamily="Space Mono">ALT: 1,842m</text>
-                <text x="210" y="96" fill="#A5A79B" fontSize="9" fontFamily="Space Mono">v: 48.3 m/s</text>
-                <text x="120" y="215" fill="#E8D2B5" fontSize="9" fontFamily="Space Mono">TARGET: LZ-ALPHA</text>
-              </svg>
+              <video
+                autoPlay
+                loop
+                muted
+                playsInline
+                preload="auto"
+                className="showcase-video"
+                aria-label="ASTRA Touchdown Simulation"
+              >
+                <source src="/astra_transparent.webm" type="video/webm" />
+                <source src="/astra_transparent.mov" type="video/quicktime" />
+                <source src="/astra_transparent.mov" type='video/mp4; codecs="hvc1"' />
+                Your browser does not support the video tag.
+              </video>
             </div>
 
             {/* Spec & Action Card */}

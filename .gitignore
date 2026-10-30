@@ -69,3 +69,7 @@ frontend/dist-ssr/
 # OS
 .DS_Store
 Thumbs.db
+
+
+# Large media files (>100MB exceeds GitHub push limit)
+*.mov
