@@ -55,7 +55,11 @@ def get_run(uid: str):
 
 @router.get("/{uid}/telemetry")
 def run_telemetry(uid: str, format: str = "json", every: int = 1):
-    frames = read_archive(uid, every=max(1, every))
+    with session_scope() as s:
+        r = s.scalar(select(M.SimulationRun).where(M.SimulationRun.run_uid == uid))
+        arch = s.scalar(select(M.TelemetryArchive).where(M.TelemetryArchive.run_id == r.id)) if r else None
+        apath = arch.path if arch else None
+    frames = read_archive(uid, every=max(1, every), path=apath)
     if not frames:
         raise HTTPException(404, "no telemetry archive for this run")
     if format == "csv":

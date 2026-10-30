@@ -24,8 +24,10 @@ def write_archive(run_uid: str, frames: list[dict]) -> tuple[Path, int]:
     return path, path.stat().st_size
 
 
-def read_archive(run_uid: str, every: int = 1) -> list[dict]:
-    path = settings.telemetry_dir / f"{run_uid}.jsonl.gz"
+def read_archive(run_uid: str, every: int = 1, path: str | Path | None = None) -> list[dict]:
+    """`path`: the location recorded in the database when the run was stored (archives written by another
+    checkout/data dir stay readable); falls back to this installation's telemetry directory."""
+    path = Path(path) if path and Path(path).exists() else settings.telemetry_dir / f"{run_uid}.jsonl.gz"
     if not path.exists():
         return []
     out = []

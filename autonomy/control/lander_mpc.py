@@ -40,6 +40,7 @@ class LanderMPCConfig:
     glideslope_deg: float = 15.0
     tilt_max_deg: float = 30.0
     profile_accel: float = 1.0
+    profile_k_low: float = 0.08       # gentle final descent (same reference as the PID)
     allocation: AllocationConfig = field(default_factory=AllocationConfig)
 
 
@@ -74,12 +75,12 @@ class LanderMPCController:
             V[k + 1] = V[k] + a * c.dt
         return P, V
 
-    def reference(self, p0, target, ground_h):
+    def reference(self, p0, target, ground_h, hold: bool = False):
         c = self.cfg
         P = np.empty((c.horizon + 1, 3)); V = np.empty((c.horizon + 1, 3))
         p = np.asarray(p0, float).copy()
         for k in range(c.horizon + 1):
-            v = desired_velocity(p, target, p[2] - ground_h, a_prof=c.profile_accel)
+            v = desired_velocity(p, target, p[2] - ground_h, a_prof=c.profile_accel, k_low=c.profile_k_low, hold=hold)
             P[k], V[k] = p, v
             p = p + v * c.dt
             if p[2] < ground_h:
@@ -92,7 +93,7 @@ class LanderMPCController:
         a_max = est["max_thrust"] / m * 0.98
         a_min = est["min_thrust"] / m
         ground_h = est["p"][2] - est["agl"]
-        Pref, Vref = self.reference(est["p"], target, ground_h)
+        Pref, Vref = self.reference(est["p"], target, ground_h, hold=bool(est.get("hover")))
         u_hover = np.array([0, 0, g])
         tan_t = np.tan(np.radians(c.tilt_max_deg))
         tan_gs = np.tan(np.radians(c.glideslope_deg))
@@ -143,6 +144,10 @@ class LanderMPCController:
 
     def guidance(self, est: dict, target: np.ndarray, dt: float):
         self.t_since += dt
+        hov = bool(est.get("hover"))
+        if hov != getattr(self, "_hov", False):          # re-plan at once when a hover starts or ends
+            self._hov = hov
+            self.t_since = 1e9
         if self.u_apply is None or self.t_since >= self.cfg.update_period - 1e-9:
             self.solve(est, target)
             self.u_apply = self.u_prev[0].copy()

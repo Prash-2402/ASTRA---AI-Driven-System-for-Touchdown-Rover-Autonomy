@@ -1,4 +1,4 @@
-"""Measure a trained policy's training envelope: the distribution of observations it experiences in the
+﻿"""Measure a trained policy's training envelope: the distribution of observations it experiences in the
 training environment (what "its world" looks like from the inside). Saved next to the model as
 envelope.json and used by autonomy/safety/policy_guard.py.
 
@@ -21,13 +21,13 @@ def _episode(args):
     from stable_baselines3 import PPO
 
     from machine_learning.environments.touchdown_env import TouchdownEnv
-    from autonomy.control.lander_pid import LanderPIDController
+    from autonomy.control.lander_pid import LanderPIDConfig, LanderPIDController
     from autonomy.safety.policy_guard import GuardConfig
     from machine_learning.environments.touchdown_env import POLICY_DT, action_to_accel
     model = PPO.load(model_path, device="cpu")
     jumps = seed % 2 == 0           # inputs: with and without target jumps; disagreement: normal flight only
     env = TouchdownEnv(seed=seed, switch_prob=0.3 if jumps else 0.0)
-    pid, gc = LanderPIDController(), GuardConfig()
+    pid, gc = LanderPIDController(LanderPIDConfig(profile_k_low=0.15)), GuardConfig()   # PPO's training profile
     obs, _ = env.reset(seed=seed)
     out, done, ewma, peak, t = [obs], False, 0.0, 0.0, 0.0
     while not done:

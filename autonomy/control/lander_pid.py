@@ -20,6 +20,7 @@ class LanderPIDConfig:
     vel_h: dict = field(default_factory=lambda: {"kp": 0.45, "ki": 0.04, "kd": 0.0, "out_min": -3.0, "out_max": 3.0, "i_limit": 20.0})
     vel_v: dict = field(default_factory=lambda: {"kp": 0.9, "ki": 0.08, "kd": 0.0, "out_min": -4.0, "out_max": 6.0, "i_limit": 20.0})
     profile_accel: float = 1.0
+    profile_k_low: float = 0.08       # gentle final descent: time to sense and side-step late hazards
     allocation: AllocationConfig = field(default_factory=AllocationConfig)
 
 
@@ -35,7 +36,8 @@ class LanderPIDController:
         self.pid_h.reset(); self.pid_v.reset()
 
     def guidance(self, est: dict, target: np.ndarray, dt: float) -> tuple[np.ndarray, dict]:
-        v_des = desired_velocity(est["p"], target, est["agl"], a_prof=self.cfg.profile_accel)
+        v_des = desired_velocity(est["p"], target, est["agl"], a_prof=self.cfg.profile_accel,
+                                 k_low=self.cfg.profile_k_low, hold=bool(est.get("hover")))
         ev = v_des - est["v"]
         a_h = self.pid_h(ev[:2], dt)
         a_v = self.pid_v(ev[2:3], dt)

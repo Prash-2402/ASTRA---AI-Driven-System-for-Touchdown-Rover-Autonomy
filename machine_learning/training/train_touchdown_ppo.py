@@ -61,10 +61,10 @@ def evaluate(model, episodes: int = 10, seed0: int = 9_000_000) -> dict:
 def _demo_episode(args) -> dict:
     """One PID-flown episode through the policy interface. Returns observations, clean PID actions, returns."""
     seed, noise = args
-    from autonomy.control.lander_pid import LanderPIDController
+    from autonomy.control.lander_pid import LanderPIDConfig, LanderPIDController
     from machine_learning.environments.touchdown_env import POLICY_DT, TouchdownEnv, accel_to_action
     env = TouchdownEnv(seed=seed)
-    pid = LanderPIDController()
+    pid = LanderPIDController(LanderPIDConfig(profile_k_low=0.15))   # demonstrations on the policy's own profile
     rng = np.random.default_rng(seed + 17)
     obs, _ = env.reset(seed=seed)
     O, A, R = [], [], []

@@ -25,6 +25,7 @@ class TouchdownPredictor(PredictionEngine):
         self.tan_t = np.tan(np.radians(tilt_max_deg))
         self.k_v = k_v
         self.dt = dt
+        self.k_low = 0.15               # set to the flying controller's final-descent gain
 
     def predict(self, state: np.ndarray, horizon_s: float = 200.0, *, target=None, fuel: float = 0.0,
                 gravity: float = 3.72, profile_accel: float = 1.0) -> dict:
@@ -41,7 +42,7 @@ class TouchdownPredictor(PredictionEngine):
                 break
             m = self.dry + max(fuel_left, 0.0)
             if target is not None and fuel_left > 0:
-                v_des = desired_velocity(p, target, agl, a_prof=profile_accel)
+                v_des = desired_velocity(p, target, agl, a_prof=profile_accel, k_low=self.k_low)
                 a = self.k_v * (v_des - v) + np.array([0, 0, gravity])
                 a[2] = max(a[2], 0.0)
                 h = np.hypot(a[0], a[1])
