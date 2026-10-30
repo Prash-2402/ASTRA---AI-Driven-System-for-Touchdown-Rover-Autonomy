@@ -101,8 +101,11 @@ def make_controller(cfg: TouchdownConfig):
 
 
 class TouchdownMission:
-    def __init__(self, cfg: TouchdownConfig):
+    def __init__(self, cfg: TouchdownConfig, fast: bool = False):
+        """``fast`` (RL training only): skip lidar scanning, the 10 Hz telemetry log and the 1 Hz prediction
+        roll-outs. Physics, sensors, EKF and supervisor are unchanged."""
         self.cfg = cfg
+        self.fast = fast
         self.seeds = SeedManager(cfg.seed)
         self.terrain = Terrain(cfg.terrain, self.seeds.stream("terrain"))
         self.atm = Atmosphere(cfg.planet, self.seeds.stream("wind"))
@@ -202,7 +205,8 @@ class TouchdownMission:
             self._control_step()
         if self.t + 1e-9 >= self._next_perc:
             self._next_perc += PERCEPTION_DT
-            self._perception_step()
+            if not self.fast:
+                self._perception_step()
         if self.t >= self._disturb_until:
             self.lander.ext_force = np.zeros(3)
 
@@ -217,7 +221,7 @@ class TouchdownMission:
         elif self.t > self.cfg.supervisor.max_mission_time:
             self.supervisor.transition(Ph.FAILED, self.t, "mission time exceeded")
             self._finish("timeout")
-        if self.t + 1e-9 >= self._next_tlm or self.supervisor.terminal:
+        if (self.t + 1e-9 >= self._next_tlm or self.supervisor.terminal) and not self.fast:
             self._next_tlm += TELEMETRY_DT
             self.telemetry.append(self.frame())
 
@@ -241,7 +245,7 @@ class TouchdownMission:
                                AllocationConfig())
             self.cmd = ActuatorCommand(0.0, np.zeros(2), c.torque)
             self.ctrl_info = {"coast": True, **info}
-        if self.t + 1e-9 >= self._next_pred:
+        if self.t + 1e-9 >= self._next_pred and not self.fast:
             self._next_pred += 1.0
             self.prediction = self.predictor.predict(np.r_[est["p"], est["v"]], target=self.target, fuel=est["fuel"],
                                                      gravity=self.g)

@@ -8,9 +8,12 @@
   converted to throttle / attitude torque / lateral thrust by the shared
   allocation inner loop.
 * Policy period 0.1 s (10 physics steps at 100 Hz).
-* Episodes start in the powered-descent regime with randomised initial
-  conditions; the landing-site diversion system is disabled during training
-  (the target is fixed per episode).
+* Episodes start in the powered-descent regime with randomised initial conditions and mild wind
+  randomisation. Lidar diversion is not part of the policy's job: instead, in a fraction of
+  episodes the target JUMPS mid-descent (as the diversion planner does in the real mission), so
+  the policy learns to follow a re-planned pad.
+* Training runs the mission in ``fast`` mode (no lidar scanning, no telemetry log, no prediction
+  roll-outs) - physics, sensors and EKF are unchanged.
 """
 from __future__ import annotations
 
@@ -19,7 +22,6 @@ import numpy as np
 
 from autonomy.control.descent_profile import desired_velocity
 from autonomy.control.lander_allocation import AllocationConfig, allocate
-from shared.enums import TouchdownPhase as Ph
 
 OBS_DIM = 14
 POLICY_DT = 0.1
@@ -47,39 +49,69 @@ def action_to_accel(action: np.ndarray, g: float) -> np.ndarray:
     return np.array([3.0 * a[0], 3.0 * a[1], g + 4.0 * a[2]])
 
 
+def accel_to_action(a_cmd: np.ndarray, g: float) -> np.ndarray:
+    """Inverse of action_to_accel (used to turn PID demonstrations into policy actions)."""
+    return np.clip(np.array([a_cmd[0] / 3.0, a_cmd[1] / 3.0, (a_cmd[2] - g) / 4.0]), -1, 1).astype(np.float32)
+
+
+def terminal_reward(outcome: str | None, td: dict, err: float) -> float:
+    """Graded so that every failure still points toward a landing: a softer, more upright, closer
+    crash scores better than a hard one, and timing out (hovering) is worse than any touchdown."""
+    if outcome == "landed":
+        return 100.0 - 1.0 * min(err, 30.0) - 5.0 * abs(td.get("vertical_speed", 0.0))
+    if outcome == "crash":
+        vz, vh, tilt = abs(td.get("vertical_speed", 10.0)), td.get("horizontal_speed", 5.0), td.get("tilt_deg", 30.0)
+        return (-20.0 - 4.0 * min(max(vz - 1.5, 0.0), 15.0) - 6.0 * min(max(vh - 1.0, 0.0), 10.0)
+                - 1.5 * min(max(tilt - 8.0, 0.0), 30.0) - 0.5 * min(err, 40.0))
+    return -90.0                                                 # timeout
+
+
 class TouchdownEnv(gym.Env):
     metadata = {"render_modes": []}
 
-    def __init__(self, seed: int = 0, randomize: bool = True, max_time: float = 140.0):
+    def __init__(self, seed: int = 0, randomize: bool = True, max_time: float = 140.0,
+                 switch_prob: float = 0.3, wind_max: float = 6.0, fast: bool = True):
         super().__init__()
         self.observation_space = gym.spaces.Box(-10, 10, (OBS_DIM,), np.float32)
         self.action_space = gym.spaces.Box(-1, 1, (3,), np.float32)
         self.base_seed = seed
         self.randomize = randomize
         self.max_time = max_time
+        self.switch_prob = switch_prob
+        self.wind_max = wind_max
+        self.fast = fast
         self.episode = 0
         self.mission = None
         self.alloc = AllocationConfig()
+        self._switch = None
 
     def _make_mission(self, seed: int):
         from simulation.touchdown.mission import TouchdownConfig, TouchdownMission
         rng = np.random.default_rng(seed)
+        self._switch = None
         cfg = TouchdownConfig(seed=seed, controller="pid", enable_diversion=False)
         if self.randomize:
             alt = rng.uniform(400, 1500)
             cfg.initial_position = [rng.uniform(-300, 300), rng.uniform(-300, 300), alt]
             cfg.initial_velocity = [rng.uniform(-20, 20), rng.uniform(-20, 20), rng.uniform(-45, -15)]
             cfg.initial_euler_deg = list(rng.uniform(-5, 5, 3))
-        cfg.terrain.rock_density_per_km2 = 300.0
+            w = rng.uniform(0, self.wind_max); a = rng.uniform(0, 2 * np.pi)
+            cfg.planet.wind = [w * np.cos(a), w * np.sin(a), 0.0]
+            # target jump (simulated diversion) at a random altitude in the lower half of the descent
+            if rng.random() < self.switch_prob:
+                r, b = rng.uniform(20, 60), rng.uniform(0, 2 * np.pi)
+                self._switch = {"agl": float(rng.uniform(120, max(150, 0.5 * alt))), "dx": r * np.cos(b), "dy": r * np.sin(b), "done": False}
+        cfg.terrain.rock_density_per_km2 = 0.0      # rocks are the lidar/diversion planner's job, not the policy's
         cfg.supervisor.ignition_agl = 1e9           # start directly in powered descent
         cfg.supervisor.max_mission_time = self.max_time
-        return TouchdownMission(cfg)
+        return TouchdownMission(cfg, fast=self.fast)
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        s = seed if seed is not None else self.base_seed * 100_003 + self.episode
+        # every vector-env worker draws its own episode seeds from its own seeded generator
+        s = int(self.np_random.integers(0, 2**31 - 1))
         self.episode += 1
-        self.mission = self._make_mission(int(s))
+        self.mission = self._make_mission(s)
         self.prev_fuel = self.mission.lander.fuel
         self.start_alt = float(self.mission.lander.pos[2])
         self.prev_phi = self._potential(self.mission.estimate())
@@ -103,6 +135,12 @@ class TouchdownEnv(gym.Env):
             if m.supervisor.terminal:
                 break
         est = m.estimate()
+        sw = self._switch
+        if sw and not sw["done"] and est["agl"] < sw["agl"] and not m.supervisor.terminal:
+            sw["done"] = True
+            x, y = m.target[0] + sw["dx"], m.target[1] + sw["dy"]
+            m.target = np.array([x, y, m.dem.height(x, y)])
+            self.prev_phi = self._potential(est)  # a re-plan is not the policy's fault: no shaping jump
         obs = build_observation(est, m.target, m.cfg.lander.fuel_mass)
         v_des = desired_velocity(est["p"], m.target, est["agl"])
         track = float(np.linalg.norm(v_des - est["v"]))
@@ -110,10 +148,9 @@ class TouchdownEnv(gym.Env):
         self.prev_fuel = m.lander.fuel
         tilt = np.radians(m.lander.tilt_deg())          # attitude stability uses true tilt only for the reward
         phi = self._potential(est)
-        reward = (0.995 * phi - self.prev_phi) - 0.01 * fuel_step - 0.2 * tilt ** 2 - 0.002 * min(track, 30.0)
+        reward = (0.995 * phi - self.prev_phi) - 0.01 * fuel_step - 0.2 * tilt ** 2 - 0.002 * min(track, 30.0) - 0.01
         self.prev_phi = phi
-        safety_violation = tilt > np.radians(35)
-        if safety_violation:
+        if tilt > np.radians(35):
             reward -= 1.0
         terminated, truncated = False, False
         info = {}
@@ -124,20 +161,15 @@ class TouchdownEnv(gym.Env):
                                                              "touchdown_speed": np.nan, "fuel_used": m.lander.fuel_used,
                                                              "terminal_reason": "fly-away"}
         if m.supervisor.terminal:
-            terminated = m.result is not None and m.result.get("outcome") in ("landed", "crash")
-            truncated = not terminated
             r = m.result or {}
+            terminated = r.get("outcome") in ("landed", "crash")
+            truncated = not terminated
             td = r.get("touchdown") or {}
             err = r.get("landing_error_m", 100.0)
-            if r.get("outcome") == "landed":
-                reward += 100.0 - 2.0 * min(err, 30.0) - 10.0 * abs(td.get("vertical_speed", 0.0))
-            elif r.get("outcome") == "crash":
-                reward += -60.0 - 5.0 * min(abs(td.get("vertical_speed", 10.0)), 15.0) - min(err, 30.0)
-            else:
-                reward += -60.0
+            reward += terminal_reward(r.get("outcome"), td, err)
             info = {"is_success": r.get("outcome") == "landed", "landing_error": err,
                     "touchdown_speed": abs(td.get("vertical_speed", np.nan)) if td else np.nan,
-                    "fuel_used": r.get("fuel_used_kg", np.nan)}
+                    "fuel_used": r.get("fuel_used_kg", np.nan), "terminal_reason": r.get("outcome")}
         return obs, float(reward), terminated, truncated, info
 
 
