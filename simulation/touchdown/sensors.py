@@ -48,6 +48,18 @@ class LanderSensorSuite:
                     setattr(specs[ch], k, v)
         self.channels = {name: SensorChannel(name, spec, seeds.stream(f"sensor:{name}"), DIMS[name])
                          for name, spec in specs.items()}
+        self.drift: dict[str, dict] = {}       # channel -> {"rate", "t0", "axis"}: the "lying sensor" fault
+
+    def set_drift(self, channel: str, rate: float, t0: float, axis: int | None = None) -> dict:
+        """Slowly growing bias (rate x time since onset). The sensor keeps its noise, rate and validity flag:
+        nothing about an individual reading looks wrong."""
+        axis = (0 if DIMS[channel] == 1 else 2) if axis is None else axis
+        self.drift[channel] = {"rate": float(rate), "t0": float(t0), "axis": int(axis)}
+        return self.drift[channel]
+
+    def drift_bias(self, channel: str, t: float) -> float:
+        d = self.drift.get(channel)
+        return 0.0 if d is None or t < d["t0"] else d["rate"] * (t - d["t0"])
 
     def sample(self, t: float, lander, agl: float) -> list[Measurement]:
         truth = {
@@ -64,6 +76,10 @@ class LanderSensorSuite:
             for m in ch.sample(t, truth[name]):
                 if name in MAX_RANGE and agl > MAX_RANGE[name]:
                     m.value, m.valid = None, False
+                if m.valid and m.value is not None and name in self.drift:
+                    v = np.array(m.value, float)
+                    v[self.drift[name]["axis"]] += self.drift_bias(name, t)
+                    m.value = v
                 out.append(m)
         return out
 

@@ -8,7 +8,7 @@ const NAV: { group: string; items: [string, string, string][] }[] = [
   { group: "Simulations", items: [["Landing Simulation", "/app/landing", "▾"], ["Rover Ground Operations", "/app/rover", "⬡"]] },
   { group: "Operations", items: [["Mission Control", "/app/mission-control", "◉"], ["Scenario Builder", "/app/scenarios", "✎"],
     ["Fault Injection", "/app/faults", "⚡"]] },
-  { group: "Research", items: [["Controller Comparison", "/app/comparison", "⇄"], ["Reinforcement Learning Lab", "/app/rl-lab", "∿"],
+  { group: "Research", items: [["Hurdle Evidence", "/app/evidence", "◆"],["Controller Comparison", "/app/comparison", "⇄"], ["Reinforcement Learning Lab", "/app/rl-lab", "∿"],
     ["Experiment Lab", "/app/experiments", "⚗"], ["Results & Analytics", "/app/results", "▤"], ["Telemetry", "/app/telemetry", "≋"]] },
 ];
 

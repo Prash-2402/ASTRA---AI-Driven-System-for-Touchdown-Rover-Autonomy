@@ -4,7 +4,7 @@ import { Field, PageHeader } from "../../components/ui";
 import MoonPage from "../moon/MoonPage";
 import TouchdownPage from "../touchdown/TouchdownPage";
 
-export type LandingFeatures = { paths: boolean; scan: boolean; obstacles: boolean; labels: boolean; telemetry: boolean };
+export type LandingFeatures = { paths: boolean; scan: boolean; obstacles: boolean; labels: boolean; telemetry: boolean; sensors: boolean };
 type Env = "mars" | "moon";
 type LandingType = "autonomous" | "fixed" | "apollo";
 
@@ -21,6 +21,7 @@ const FEATURES: [keyof LandingFeatures, string, string, boolean][] = [
   ["paths", "Landing path guidance", "flown trail, target path, replanned path, forecast, pad beacons", true],
   ["scan", "Lidar surroundings scan", "scan footprint, sweep and perceived hazard rocks", false],
   ["obstacles", "Obstacle placement", "spawn at pad or click anywhere on the surface", false],
+  ["sensors", "Sensor-health monitor (lying sensor)", "inject a slow drift and watch the CUSUM evidence build up", false],
   ["labels", "Component labels", "annotate the vehicle's actuators and sensors", true],
   ["telemetry", "Telemetry charts", "truth vs estimate, propulsion and resources", true],
 ];
@@ -30,7 +31,7 @@ export default function LandingSimPage() {
   const env: Env = sp.get("env") === "moon" ? "moon" : "mars";
   const reqType = (sp.get("type") as LandingType) || (sp.get("env") === "moon" && !sp.get("type") ? "autonomous" : "autonomous");
   const type: LandingType = TYPES.find((t) => t.id === reqType && t.envs.includes(env)) ? reqType : "autonomous";
-  const [features, setFeatures] = useState<LandingFeatures>({ paths: true, scan: true, obstacles: true, labels: false, telemetry: true });
+  const [features, setFeatures] = useState<LandingFeatures>({ paths: true, scan: true, obstacles: true, labels: false, telemetry: true, sensors: true });
   const [open, setOpen] = useState(false);
   const pop = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -70,7 +71,7 @@ export default function LandingSimPage() {
         <p className="md:col-span-3 text-[12px] text-ink2 -mt-1">{t.blurb}</p>
       </div>
       {type === "apollo"
-        ? <MoonPage features={{ ...features, scan: false, obstacles: false }} />
+        ? <MoonPage features={{ ...features, scan: false, obstacles: false, sensors: false }} />
         : <TouchdownPage key={env} env={env} diversion={type === "autonomous"} features={features} />}
     </div>
   );

@@ -114,7 +114,7 @@ def behaviour_clone(model, demos: dict, epochs: int = 40, batch: int = 1024, lr:
             loss_v = ((pol.predict_values(obs[idx]).squeeze(-1) - ret[idx]) ** 2).mean()
             loss = loss_pi + 1e-3 * loss_v
             opt.zero_grad(); loss.backward(); opt.step()
-            lp += float(loss_pi) * len(idx); lv += float(loss_v) * len(idx)
+            lp += loss_pi.item() * len(idx); lv += loss_v.item() * len(idx)
     with torch.no_grad():
         pol.log_std.fill_(-1.6)                      # explore ~0.2 around the cloned behaviour
     return {"bc_epochs": epochs, "bc_samples": n, "bc_action_mse": lp / n, "bc_value_mse": lv / n}

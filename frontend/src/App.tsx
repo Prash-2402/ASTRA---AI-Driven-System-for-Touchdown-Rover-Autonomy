@@ -14,6 +14,7 @@ const RLLab = lazy(() => import("./application/pages/RLLab"));
 const ExperimentLab = lazy(() => import("./application/pages/ExperimentLab"));
 const Results = lazy(() => import("./application/pages/Results"));
 const Telemetry = lazy(() => import("./application/pages/Telemetry"));
+const Evidence = lazy(() => import("./application/pages/Evidence"));
 
 const Loading = () => <div className="p-10 eyebrow">Loading…</div>;
 
@@ -36,6 +37,7 @@ export default function App() {
           <Route path="experiments" element={<ExperimentLab />} />
           <Route path="results" element={<Results />} />
           <Route path="telemetry" element={<Telemetry />} />
+          <Route path="evidence" element={<Evidence />} />
         </Route>
         <Route path="/app/*" element={<Navigate to="/app" />} />
         <Route path="*" element={<Navigate to="/" />} />

@@ -8,6 +8,7 @@ import { usePoll } from "../../hooks/useChannel";
 import { api } from "../../services/api";
 import { useSim } from "../../stores/simulation";
 import type { LandingFeatures } from "../landing/LandingSimPage";
+import SensorHealthPanel from "../../components/SensorHealthPanel";
 
 const TouchdownScene = lazy(() => import("../../visualization/TouchdownScene"));
 const deg = (r: number) => (r * 180) / Math.PI;
@@ -35,7 +36,7 @@ export default function TouchdownPage({ env, diversion, features }: { env: "mars
   const [placing, setPlacing] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [cfg, setCfg] = useState({ seed: 42, controller: "pid", hazard: false, alt: 2900 });
+  const [cfg, setCfg] = useState({ seed: 42, controller: "pid", hazard: false, alt: 2900, guard: "monitor" });
   const [envp, setEnvp] = useState({ wind_speed: 4.5, wind_dir_deg: -27, gust_std: 1.5, dust: 0 });
   const avail = usePoll(() => api.get("/api/touchdown/controllers"), 0);
   const decisions = usePoll(() => api.get("/api/touchdown/decisions"), 2000, [live?.run_uid]);
@@ -52,7 +53,7 @@ export default function TouchdownPage({ env, diversion, features }: { env: "mars
     const c = { ...cfg, ...over };
     try {
       const a = envp.wind_dir_deg * Math.PI / 180;
-      await api.post("/api/touchdown/config", { seed: c.seed, controller: c.controller, environment: env, enable_diversion: diversion,
+      await api.post("/api/touchdown/config", { seed: c.seed, controller: c.controller, environment: env, enable_diversion: diversion, ppo_guard: c.guard,
         initial_position: [-650, 320, c.alt], terrain: { hazard_at_target: c.hazard },
         planet: airless ? {} : { wind: [envp.wind_speed * Math.cos(a), envp.wind_speed * Math.sin(a), 0], gust_std: envp.gust_std } });
       if (!airless && envp.dust > 0) await api.post("/api/touchdown/environment", { dust: envp.dust });
@@ -64,7 +65,7 @@ export default function TouchdownPage({ env, diversion, features }: { env: "mars
   useEffect(() => {
     api.get("/api/touchdown/config").then((c) => {
       const a = c.active || {};
-      setCfg((x) => ({ ...x, seed: a.seed ?? x.seed, controller: a.controller ?? x.controller, hazard: !!a.terrain?.hazard_at_target, alt: a.initial_position?.[2] ?? x.alt }));
+      setCfg((x) => ({ ...x, seed: a.seed ?? x.seed, controller: a.controller ?? x.controller, hazard: !!a.terrain?.hazard_at_target, alt: a.initial_position?.[2] ?? x.alt, guard: a.ppo_guard ?? x.guard }));
       const want = `${env}|${diversion}`;
       if (synced.current !== want && ((a.environment ?? "mars") !== env || (a.enable_diversion ?? true) !== diversion)) configure();
       synced.current = want;
@@ -118,7 +119,9 @@ export default function TouchdownPage({ env, diversion, features }: { env: "mars
                 <div className="font-semibold tracking-wide">⚠ HAZARD DETECTED AT PLANNED PAD ({fmt(orig?.[0], 0)}, {fmt(orig?.[1], 0)})</div>
                 <div className="text-[#bbf7d0] mt-0.5">AUTONOMOUS DIVERT ENGAGED → RETARGETED TO SAFE SITE ({fmt(f?.target[0], 0)}, {fmt(f?.target[1], 0)}) · {fmt(Math.hypot((f?.target[0] ?? 0) - (orig?.[0] ?? 0), (f?.target[1] ?? 0) - (orig?.[1] ?? 0)), 0)} m away · diversions {live.diversions}</div>
                 {divEvent && <div className="opacity-80 mt-0.5">t = {fmt(divEvent.t, 1)} s · {divEvent.message}</div>}</div>}
-              {pendingObstacle && <div className="hud px-3 py-2 text-[11px] text-[var(--warning)]">Obstacle on the pad — lidar not yet in range (AGL {fmt(f?.truth.agl, 0)} m &gt; {fmt(per?.assessment_agl, 0)} m)</div>}
+              {(live as any)?.events?.some((e: any) => e.kind === "guard") && <div className="rounded-[10px] px-3 py-2 text-[11px] leading-snug" style={{ background: "rgba(146,64,14,.88)", color: "#fff" }}>
+                <b>⚠ LEARNED CONTROLLER OUTSIDE ITS EXPERIENCE</b><div className="opacity-90">{[...(live?.events || [])].reverse().find((e: any) => e.kind === "guard")?.message}</div></div>}
+              {pendingObstacle &&<div className="hud px-3 py-2 text-[11px] text-[var(--warning)]">Obstacle on the pad — lidar not yet in range (AGL {fmt(f?.truth.agl, 0)} m &gt; {fmt(per?.assessment_agl, 0)} m)</div>}
               {features.scan && per?.scans > 0 && <div className="hud px-3 py-1.5 text-[11px] text-[var(--ink-secondary)]"><span className="text-[#0e7490] font-medium">LIDAR SCAN #{per.scans}</span> · radius {fmt(per.region?.[2], 0)} m · {per.rocks?.length ?? 0} rocks perceived near the pad · {per.rocks?.filter((r: number[]) => r[2] > per.hazard_limit_m).length ?? 0} above limit</div>}
               {note && <div className="hud px-3 py-2 text-[11px] text-ink">{note}</div>}
             </div>
@@ -137,6 +140,7 @@ export default function TouchdownPage({ env, diversion, features }: { env: "mars
               <div className="eyebrow !text-[9.5px] mb-1 text-[var(--primary)]">What is happening · {live.phase}</div>{EXPLAIN[live.phase] ?? ""}
               <div className="mt-2 text-[10.5px] text-[var(--muted)]">Relay orbiter drawn far closer than its real orbit. Terrain beyond 1 km is visual context (curvature exaggerated).</div></div>}
           </div>
+          {features.sensors && <SensorHealthPanel snap={live} hist={hist} onError={setErr} />}
           {features.telemetry && (!f ? <Empty title="No descent configured">Choose the landing on the selectors above and press Start.</Empty> : (
             <div className="grid md:grid-cols-2 gap-5">
               <Panel eyebrow="Truth vs estimate" title="Altitude"><Series data={hist} lines={[{ key: "agl", name: "AGL truth [m]" }, { key: "agl_est", name: "AGL EKF [m]", dashed: true }]} /></Panel>
@@ -163,7 +167,9 @@ export default function TouchdownPage({ env, diversion, features }: { env: "mars
               </div>
             ) : <div className="text-[12px] text-muted">No telemetry.</div>}
             {f?.controller?.mpc && <div className="mt-4 text-[11px] text-ink2 num">MPC: {f.controller.mpc.success ? "converged" : "not converged"} · {fmt(f.controller.mpc.solve_ms, 1)} ms · it {f.controller.mpc.iterations} · N={f.controller.mpc.horizon}/Nc={f.controller.mpc.control_horizon}</div>}
-            {f?.controller?.ppo && <div className="mt-4 text-[11px] text-ink2 num">PPO checkpoint {f.controller.ppo.checkpoint}</div>}
+            {f?.controller?.ppo && <div className="mt-4 text-[11px] text-ink2 num space-y-0.5">
+              <div>PPO checkpoint {f.controller.ppo.checkpoint} · in control: <b className={f.controller.ppo.in_control === "pid" ? "text-warning" : "text-ink"}>{String(f.controller.ppo.in_control).toUpperCase()}</b></div>
+              {f.controller.ppo.guard && <div>guard ({f.controller.ppo.guard.mode}): input z {fmt(f.controller.ppo.guard.z_max, 1)}σ {f.controller.ppo.guard.z_input ? `(${f.controller.ppo.guard.z_input})` : ""} · disagreement vs PID {fmt(f.controller.ppo.guard.disagreement, 2)} m/s²</div>}</div>}
           </Panel>
           <Panel eyebrow={airless ? "Environment · airless body" : "Environment · live"} title="Wind, gusts & dust">
             {airless ? <p className="text-[12px] text-ink2">The Moon has no atmosphere: no wind, no gusts and no dust storms act on the lander. Gravity 1.625 m/s².</p> : <>
@@ -179,6 +185,8 @@ export default function TouchdownPage({ env, diversion, features }: { env: "mars
             <div className="grid grid-cols-2 gap-3">
               <Field label="Controller"><select className="select" value={cfg.controller} onChange={(e) => setCfg({ ...cfg, controller: e.target.value })}>
                 <option value="pid">Cascade PID</option><option value="mpc">MPC</option><option value="ppo" disabled={!avail.data?.ppo}>PPO {avail.data?.ppo ? "" : "(no trained policy)"}</option></select></Field>
+              {cfg.controller === "ppo" && <Field label="PPO guard"><select className="select" value={cfg.guard} onChange={(e) => setCfg({ ...cfg, guard: e.target.value })}>
+                <option value="monitor">Flag only (show quiet failure)</option><option value="fallback">Flag + hand over to PID</option><option value="off">Off</option></select></Field>}
               <Field label="Random seed"><input className="input num" type="number" value={cfg.seed} onChange={(e) => setCfg({ ...cfg, seed: +e.target.value })} /></Field>
               <Field label="Initial altitude [m]"><input className="input num" type="number" value={cfg.alt} onChange={(e) => setCfg({ ...cfg, alt: +e.target.value })} /></Field>
             </div>

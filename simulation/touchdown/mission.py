@@ -17,6 +17,7 @@ from autonomy.control.descent_profile import desired_velocity
 from autonomy.decision.audit import DecisionAudit
 from autonomy.decision.touchdown_supervisor import SupervisorConfig, TouchdownSupervisor
 from autonomy.estimation.lander_ekf import LABELS, EKFConfig, LanderEKF
+from autonomy.fault_detection.sensor_health import SensorHealthMonitor
 from autonomy.framework import StateObservationManager, TimestampedEstimate
 from autonomy.planning.landing_perception import LidarConfig, OrbitalDEM, PerceivedHazardMap
 from autonomy.planning.landing_site import DiversionConfig, DiversionPlanner, LandingSiteAssessor, SiteCriteria
@@ -33,6 +34,7 @@ PHYSICS_DT = 0.01
 CONTROL_DT = 0.05
 PERCEPTION_DT = 1.0
 TELEMETRY_DT = 0.1
+HEALTH_WARMUP_S = 15.0
 
 
 @dataclass
@@ -57,6 +59,8 @@ class TouchdownConfig:
     mpc: LanderMPCConfig = field(default_factory=LanderMPCConfig)
     ppo_checkpoint: str | None = None
     enable_diversion: bool = True
+    sensor_health: bool = True              # lying-sensor monitor (CUSUM + cross-check) with isolation
+    ppo_guard: str = "monitor"              # off | monitor | fallback (learned-controller runtime guard)
 
     @staticmethod
     def from_dict(d: dict) -> "TouchdownConfig":
@@ -96,7 +100,7 @@ def make_controller(cfg: TouchdownConfig):
         return LanderMPCController(cfg.mpc)
     if cfg.controller == "ppo":
         from autonomy.control.lander_ppo import LanderPPOController
-        return LanderPPOController(cfg.ppo_checkpoint)
+        return LanderPPOController(cfg.ppo_checkpoint, guard=cfg.ppo_guard)
     raise ValueError(f"unknown controller {cfg.controller}")
 
 
@@ -154,6 +158,8 @@ class TouchdownMission:
         self.wall_time = 0.0
         self.max_est_err = 0.0
         self._target_verified = False
+        self.health = SensorHealthMonitor() if (cfg.sensor_health and not fast) else None
+        self._last_alt = None
         self.last_scan: dict | None = None
         self.obstacles: list[dict] = []
         self._lidar_base = (cfg.lidar.detect_prob, cfg.lidar.range_noise_base, cfg.lidar.range_noise_per_m, cfg.lidar.max_range)
@@ -193,10 +199,8 @@ class TouchdownMission:
                 continue
             if m.channel == "imu_accel": self.last_accel = m.value
             elif m.channel == "imu_gyro": self.last_gyro = m.value
-            elif m.channel == "position": self.ekf.update_position(m.value)
-            elif m.channel == "velocimeter": self.ekf.update_velocity(m.value)
+            elif m.channel in ("position", "velocimeter", "altimeter"): self._nav_update(m)
             elif m.channel == "attitude": self.ekf.update_attitude(m.value)
-            elif m.channel == "altimeter": self.ekf.update_altimeter(m.value + self.cfg.lander.leg_height)
             elif m.channel == "fuel": self.fuel_meas = float(m.value[0])
         self.ekf.predict(self.last_accel, self.last_gyro, dt)
 
@@ -225,6 +229,68 @@ class TouchdownMission:
             self._next_tlm += TELEMETRY_DT
             self.telemetry.append(self.frame())
 
+    def _nav_update(self, m) -> None:
+        """Navigation-sensor update routed through the sensor-health monitor. An isolated sensor is still
+        observed (dry update) but no longer corrects the estimate."""
+        ch, leg = m.channel, self.cfg.lander.leg_height
+        z = m.value + leg if ch == "altimeter" else m.value
+        dry = self.health is not None and self.health.isolated(ch)
+        if ch == "position":
+            self.ekf.update_position(z, dry=dry, delay=self.sensors.channels["position"].spec.delay_s)
+        else:
+            {"velocimeter": self.ekf.update_velocity, "altimeter": self.ekf.update_altimeter}[ch](z, dry=dry)
+        # monitoring starts once the filter has converged from its initial uncertainty (the start-up
+        # transient legitimately produces one-sided innovations)
+        if self.health is None or self.t < HEALTH_WARMUP_S or self.ekf.position_sigma_h() > 12.0:
+            return
+        inn = self.ekf.last_innovation.get(ch)
+        truth = {"altimeter": np.array([self._agl_true() + leg]), "position": self.lander.pos,
+                 "velocimeter": self.lander.vel}[ch]
+        changes = self.health.update(self.t, ch, inn["innovation"], inn["S_diag"], z, truth)
+        if ch == "altimeter":
+            self._last_alt = (self.t, float(z[0]), self.cfg.ekf.meas_std["altimeter"] + 0.002 * abs(float(z[0])))
+        elif ch == "position" and self._last_alt and self.t - self._last_alt[0] < 0.3:
+            gx, gy = self.dem.gradient(z[0], z[1])
+            lag = self.sensors.channels["position"].spec.delay_s + (self.t - self._last_alt[0])
+            v = self.ekf.x[3:6]
+            px, py, pz = z[0] + v[0] * lag, z[1] + v[1] * lag, z[2] + v[2] * lag   # TRN fix brought to the altimeter epoch
+            trn_h = float(pz - self.dem.height(px, py))
+            trn_sig = float(np.hypot(self.cfg.ekf.meas_std["position"][2], 4.0 * np.hypot(gx, gy)))
+            self.health.cross_check(self.t, self._last_alt[1], self._last_alt[2], trn_h, trn_sig)
+        for c in changes:
+            self._sensor_health_event(c)
+
+    def _sensor_health_event(self, c: dict) -> None:
+        d = self.sensors.drift.get(c["channel"])
+        onset = d["t0"] if d else None
+        delay = None if onset is None else round(c["t"] - onset, 2)
+        if c["status"] == "SUSPECT":
+            self._event("sensor_health", f"{c['channel']} SUSPECT: innovations leaning {c['direction']} "
+                        f"(CUSUM {c['cusum']:.1f} > {c['threshold']:.0f})", **c)
+            return
+        est = self.estimate()
+        ev = self.audit.record(
+            t=self.t, trigger=f"persistent one-sided {c['channel']} innovations (CUSUM {c['cusum']:.1f} > h={c['threshold']:.0f})",
+            decision=f"isolate {c['channel']} from the navigation filter",
+            evidence={"cusum": c["cusum"], "threshold": c["threshold"], "direction": c["direction"],
+                      "confirmed_by": c["confirmed_by"], "cross_check_cusum": c.get("cross_check"),
+                      "mean_normalised_innovation": self.health.innov_mean[c["channel"]]},
+            estimated_state={"p": est["p"], "v": est["v"], "agl": est["agl"]},
+            uncertainty={"sigma": est["sigma"][:6]},
+            expected_outcome={"navigation": "continues on the remaining sensors"},
+            details={"drift_onset_t": onset, "detection_delay_s": delay,
+                     "true_bias_at_detection": self.sensors.drift_bias(c["channel"], self.t)},
+            safety_status="sensor fault")
+        self._event("sensor_health", f"{c['channel'].upper()} DRIFT DETECTED at t={c['t']:.1f} s"
+                    + (f", {delay:.1f} s after onset" if delay is not None else "") + " — sensor isolated",
+                    decision_id=ev.event_id, **c)
+
+    def inject_drift(self, channel: str, rate: float, axis: int | None = None) -> dict:
+        d = self.sensors.set_drift(channel, rate, self.t, axis)
+        self._event("injection", f"Slow drift injected on {channel}: {rate:+.2f} units/s from t={self.t:.1f} s "
+                                 "(readings stay valid and noisy — nothing looks broken)")
+        return {"channel": channel, **d}
+
     def _control_step(self):
         sup = self.supervisor
         est = self.estimate()
@@ -238,6 +304,16 @@ class TouchdownMission:
             self._event("phase", "Landing approach")
         if sup.engine_enabled:
             self.cmd, self.ctrl_info = self.controller.compute(est, self.target, CONTROL_DT, self.cfg.lander)
+            ge = getattr(self.controller, "guard_event", None)
+            if ge and not getattr(self, "_guard_logged", False):
+                self._guard_logged = True
+                self.guard_flag = {**ge, "mission_t": round(self.t, 2)}
+                self.audit.record(t=self.t, trigger="learned controller outside its experience: " + "; ".join(ge["reasons"]),
+                                  decision=ge["action"], evidence={k: ge[k] for k in ("z_max", "z_input", "disagreement")},
+                                  estimated_state={"p": est["p"], "v": est["v"], "agl": est["agl"]},
+                                  uncertainty={"sigma": est["sigma"][:6]}, expected_outcome={"controller_in_charge": "pid" if ge["mode"] == "fallback" else "ppo"},
+                                  safety_status="policy out of distribution")
+                self._event("guard", f"PPO GUARD at t={self.t:.1f} s: " + "; ".join(ge["reasons"]) + f" → {ge['action']}")
         else:
             # coast: engine off, RCS holds vertical attitude
             from autonomy.control.lander_allocation import AllocationConfig, allocate
@@ -364,6 +440,13 @@ class TouchdownMission:
             "final_position_estimation_error_m": float(np.linalg.norm(self.ekf.x[0:3] - p)),
             "ekf_rejected_measurements": self.ekf.rejected, "phase_history": self.supervisor.history,
             "touchdown": touchdown,
+            "sensor_faults": {ch: {**d, "final_bias": self.sensors.drift_bias(ch, self.t),
+                                   **((self.health.first.get(ch) or {}) if self.health else {}),
+                                   "detection_delay_s": (round(self.health.first[ch]["isolated"] - d["t0"], 2)
+                                                         if self.health and "isolated" in self.health.first.get(ch, {}) else None)}
+                              for ch, d in self.sensors.drift.items()},
+            "false_alarms": [ch for ch, f in (self.health.first.items() if self.health else []) if ch not in self.sensors.drift],
+            "ppo_guard": getattr(self, "guard_flag", None),
         }
 
     # ------------------------------------------------------------------
@@ -395,7 +478,9 @@ class TouchdownMission:
                 "site_status": self.site_status, "diversions": self.diversions, "result": self.result,
                 "events": self.events[-30:], "environment": {**self.environment, "name": self.cfg.environment,
                                                               "airless": self.cfg.planet.rho0 <= 0.0},
-                "original_target": self.original_target.tolist(), "obstacles": self.obstacles}
+                "original_target": self.original_target.tolist(), "obstacles": self.obstacles,
+                "drift": {k: {**v, "bias_now": round(self.sensors.drift_bias(k, self.t), 3)} for k, v in self.sensors.drift.items()},
+                "sensor_health": self.health.snapshot() if self.health else None}
         tx, ty = self.target[:2]
         reg = self.hmap.scan_regions[-1] if self.hmap.scan_regions else None
         snap["perception"] = {

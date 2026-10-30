@@ -1,4 +1,4 @@
-"""Six-degree-of-freedom lander rigid-body model.
+﻿"""Six-degree-of-freedom lander rigid-body model.
 
 State vector (14):  p[3] (world ENU, m) | v[3] (m/s) | q[4] (body->world) | w[3] (body rad/s) | m_fuel (kg)
 
@@ -27,6 +27,7 @@ class LanderParams:
     dry_mass: float = 1100.0            # kg
     fuel_mass: float = 450.0            # kg (initial)
     max_thrust: float = 10_000.0        # N, main engine (body +z)
+    thrust_efficiency: float = 1.0      # TRUE delivered / commanded main-engine thrust (unmodelled by guidance)
     min_throttle: float = 0.15          # deep-throttling lower bound when lit
     isp: float = 225.0                  # s
     max_lateral_thrust: float = 500.0   # N per body axis (x, y)
@@ -109,7 +110,7 @@ class Lander:
         thr = self.throttle if lit else 0.0
         lat = self.lateral if lit else np.zeros(2)
         tq = self.torque if lit else np.zeros(3)
-        f_body = np.array([lat[0] * p.max_lateral_thrust, lat[1] * p.max_lateral_thrust, thr * p.max_thrust])
+        f_body = np.array([lat[0] * p.max_lateral_thrust, lat[1] * p.max_lateral_thrust, thr * p.max_thrust * p.thrust_efficiency])
         f_thrust_world = R @ f_body
         alt = x[2] - terrain_h
         v_rel = x[3:6] - atm.wind()

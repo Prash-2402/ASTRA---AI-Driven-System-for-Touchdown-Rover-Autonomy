@@ -28,12 +28,19 @@ class TouchdownConfigRequest(BaseModel):
     supervisor: dict[str, Any] = Field(default_factory=dict)
     enable_diversion: bool = True
     ppo_checkpoint: str | None = None
+    ppo_guard: Literal["off", "monitor", "fallback"] = "monitor"
 
 
 class HazardInjection(BaseModel):
     x: float | None = None
     y: float | None = None
     radius: float = Field(25.0, gt=0, le=150)
+
+
+class DriftInjection(BaseModel):
+    channel: Literal["altimeter", "position", "velocimeter"] = "altimeter"
+    rate: float = Field(0.6, ge=-5, le=5, description="bias growth per second (m/s for altimeter/position, m/s² for velocimeter)")
+    axis: int | None = Field(None, ge=0, le=2)
 
 
 class LanderEnvironment(BaseModel):
