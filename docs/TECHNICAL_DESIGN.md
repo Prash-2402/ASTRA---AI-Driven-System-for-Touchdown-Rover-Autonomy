@@ -1,60 +1,27 @@
-# ASTRA Technical Design Document
-## Detailed Specifications, Mathematics, and Data Models
+# Technical Design
 
-### 1. Architectural Scope and Component Layout
-ASTRA is designed as an end-to-end scientific platform implementing high-fidelity planetary dynamics and verifiable autonomy.
+## Session lifecycle (`backend/orchestration/session.py`)
+`IDLE → RUNNING ⇄ PAUSED → (STOPPED | COMPLETED | ERROR)`. `reset` builds a fresh mission from the stored
+configuration with a new `run_uid`. With `speed = s > 0` the worker advances `s` simulated seconds per wall
+second (capped at 80 ms of compute per iteration); `speed = 0` runs as fast as possible. Exceptions are
+captured into `status = error` with a traceback shown in the UI — never swallowed.
 
-The repository structure isolates responsibilities cleanly:
-```
-ASTRA/
-├── backend/                  # FastAPI web services, WebSockets, DB models
-│   ├── api/                  # REST endpoints: /api/platform, /api/touchdown, /api/rover, /api/experiments, /api/audit
-│   ├── core/                 # Main application entry point & CORS
-│   ├── database/             # SQLAlchemy ORM, engine, and CRUD helpers
-│   ├── orchestration/        # Simulation lifecycle manager (SimManager)
-│   └── telemetry/            # Non-blocking WebSocket broadcaster
-├── simulation/               # Pure mathematical & physical simulation kernels
-│   ├── touchdown/            # 6-DoF Mars lander, RK4, propulsion, sensors, hazards
-│   └── rover/                # 6-wheel rocker-bogie, Pacejka slip, deterministic terrain
-├── autonomy/                 # Perception, estimation, planning, and control
-│   ├── estimation/           # Extended Kalman Filters (EKF) with Joseph updates
-│   ├── control/              # Cascade PID, Receding-Horizon MPC, Pure Pursuit
-│   ├── planning/             # Dynamic Traversability Costmap & A* search
-│   ├── fault_detection/      # Anomaly detection & Bayesian fault classifier
-│   ├── decision/             # Rule-based FSM baseline for matched benchmark
-│   └── safety/               # Independent hard-constraint safety supervisors
-├── machine_learning/         # Reinforcement learning pipelines
-│   ├── environments/         # Gymnasium LanderEDLEnv wrapper
-│   └── training/             # PyTorch Actor-Critic PPO policy & manager
-├── experiments/              # Scientific experimentation & statistics
-│   ├── analysis/             # Wilson score 95% CIs, Welch's t-test, Fisher test
-│   └── runners/              # Matched paired trial batch runner
-├── shared/                   # Pydantic schemas, enums, and WebSocket contracts
-└── frontend/                 # Vite, React, TypeScript, Three.js, Zustand
-```
+On completion or stop the run is persisted (`persistence.py`): configuration (+SHA-256 hash), result,
+software versions (numpy/scipy/pybullet/git commit), decisions, fault events, 1 Hz decimated
+estimated-state / controller-action rows, a mission report, and a full-rate telemetry archive.
 
----
+## Experiments (`experiments/runners/batch.py`)
+Trial *i* uses `seed = base_seed + i` for every controller and condition, so terrain, sensor-noise streams
+(per-subsystem `SeedManager` streams), initial conditions and fault schedules are identical. Trials run in a
+process pool; each finished trial is written immediately, so a batch can be resumed after interruption.
+Held-out mode only accepts terrains 4–5; development mode only 1–3 (enforced server-side).
 
-### 2. State & Coordinate Reference Frames
-All calculations in ASTRA adhere to standard aerospace and robotics coordinate conventions:
-1. **World Frame (Inertial, NWU / ENU):**
-   - $X$: East / Downrange
-   - $Y$: North / Crossrange
-   - $Z$: Up (Opposite to planetary gravity vector $\mathbf{g} = [0, 0, -g]^T$)
-2. **Body Frame (Vehicle-Fixed):**
-   - Origin at the vehicle Center of Mass (CoM).
-   - Touchdown Lander: $+Z_B$ aligned with thrust vector (pointing out top/bottom), $+X_B, +Y_B$ in vehicle lateral plane.
-   - Rover: $+X_B$ forward heading, $+Y_B$ lateral port, $+Z_B$ normal to chassis base plate.
+## Determinism
+Each stochastic subsystem draws from its own SHA-256-derived stream, so adding noise to one sensor never
+shifts another subsystem's sequence. Verified by tests (`test_touchdown_reproducible_with_same_seed`,
+`test_rover_reproducible_and_nominal_controllers_identical`). Tolerance: bit-identical on the same machine
+and software versions; across platforms, PyBullet contact solving may differ at floating-point level.
 
----
-
-### 3. Numerical Integration Engine
-Both simulation cores use explicit, deterministic integrators. Touchdown uses 4th-Order Runge-Kutta (RK4):
-
-$$\mathbf{k}_1 = f(t_n, \mathbf{y}_n)$$
-$$\mathbf{k}_2 = f\left(t_n + \frac{\Delta t}{2}, \mathbf{y}_n + \frac{\Delta t}{2} \mathbf{k}_1\right)$$
-$$\mathbf{k}_3 = f\left(t_n + \frac{\Delta t}{2}, \mathbf{y}_n + \frac{\Delta t}{2} \mathbf{k}_2\right)$$
-$$\mathbf{k}_4 = f(t_n + \Delta t, \mathbf{y}_n + \Delta t \mathbf{k}_3)$$
-$$\mathbf{y}_{n+1} = \mathbf{y}_n + \frac{\Delta t}{6} (\mathbf{k}_1 + 2\mathbf{k}_2 + 2\mathbf{k}_3 + \mathbf{k}_4)$$
-
-RK4 eliminates numerical energy drift during rapid attitude slew maneuvers and terminal thrust throttling.
+## Error handling
+Validation errors → HTTP 422; conflicting state (PPO without a trained model, two batches at once) → 409;
+missing records → 404. Persistence failures are reported as `persist_error` on the session.

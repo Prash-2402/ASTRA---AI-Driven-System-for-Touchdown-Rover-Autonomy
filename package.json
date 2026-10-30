@@ -1,0 +1,11 @@
+{
+  "name": "astra",
+  "private": true,
+  "scripts": {
+    "dev:web": "npm --prefix frontend run dev",
+    "build:web": "npm --prefix frontend run build",
+    "typecheck:web": "npm --prefix frontend run typecheck",
+    "dev:api": "uvicorn backend.api.main:app --reload --port 8000",
+    "test": "pytest -m \"not slow\""
+  }
+}

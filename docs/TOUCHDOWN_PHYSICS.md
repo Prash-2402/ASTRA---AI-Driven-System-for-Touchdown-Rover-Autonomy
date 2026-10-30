@@ -1,56 +1,59 @@
-# ASTRA Touchdown Physics
-## 6-DoF Rigid-Body Dynamics, Mars Environment, Aerodynamics, and Propulsion
+# Touchdown Physics
 
-### 1. Planetary Environment Parameters
-ASTRA Touchdown is configured for standard Mars atmospheric entry, descent, and landing (EDL):
+## Environment (Mars only)
+| Parameter | Value | Source |
+|---|---|---|
+| Gravity g | 3.72076 m/s² | NASA GSFC Mars Fact Sheet (equatorial) |
+| Mean radius | 3 389.5 km | NASA GSFC |
+| Surface density ρ₀ | 0.020 kg/m³ | NASA GSFC (typical) |
+| Scale height H | 11.1 km | NASA GSFC |
+| Atmosphere | ρ(h) = ρ₀ exp(−h/H) | exponential model |
+| Wind | mean vector + Ornstein–Uhlenbeck gusts (σ = 1.5 m/s, τ = 3 s) | configurable |
 
-| Parameter | Symbol | Nominal Value | Units | Reference |
-| :--- | :--- | :--- | :--- | :--- |
-| **Surface Gravity** | $g_{\text{mars}}$ | $3.71$ | $\text{m/s}^2$ | NASA Mars Fact Sheet |
-| **Planetary Radius** | $R_{\text{mars}}$ | $3389.5 \times 10^3$ | $\text{m}$ | Volumetric mean radius |
-| **Surface Atmospheric Density** | $\rho_0$ | $0.020$ | $\text{kg/m}^3$ | CO2-dominant atmosphere |
-| **Atmospheric Scale Height** | $H$ | $11100.0$ | $\text{m}$ | Barometric scale height |
-| **Surface Elevation Variance** | $\sigma_z$ | Fractal grid | $\text{m}$ | Harmonic craters & regional slopes |
+Local flat ENU frame (x East, y North, z Up). At < 10 km altitude the curvature error is < 0.02 %.
 
-The atmospheric density at altitude $z$ follows the barometric exponential profile:
-$$\rho(z) = \rho_0 \exp\left(-\frac{z}{H}\right)$$
+## State and equations (`simulation/touchdown/lander.py`)
+State (14): p (3), v (3), q (4, body→world, scalar first), ω (3, body), m_fuel.
 
-Wind velocity combines steady altitude-dependent boundary layers with stochastic turbulent gusts:
-$$\mathbf{v}_{\text{wind}}(z) = \mathbf{v}_{\text{base}} \min\left(1.0, \max\left(0.1, \frac{z}{800}\right)\right) + \boldsymbol{\eta}_{\text{gust}}$$
+```
+ṗ = v
+v̇ = ( R(q)·F_body + F_aero + F_dist ) / m + [0, 0, −g]
+q̇ = ½ q ⊗ [0, ω]
+ω̇ = I⁻¹ ( τ − ω × Iω )
+ṁ_fuel = −( |T_main| + |T_x| + |T_y| ) / (Isp g₀) − Σ|τ_i| / (r_rcs Isp g₀)
+F_body = [u_x T_lat, u_y T_lat, u_th T_max]
+F_aero = −½ ρ C_d A |v − w| (v − w)
+I(m) = I_full · m / m_wet           (propellant at CoM — simplification)
+```
+Integrated with classical RK4 at Δt = 0.01 s; quaternion renormalised each step.
 
----
+## Propulsion & actuators
+| Parameter | Value |
+|---|---|
+| Dry / propellant mass | 1100 / 450 kg |
+| Main engine T_max, Isp | 10 kN, 225 s (min throttle 15 % when lit) |
+| Lateral thrusters | ±500 N per body axis |
+| RCS torque limits | 700, 700, 350 N m |
+| Actuator lags | throttle τ = 0.12 s, RCS τ = 0.05 s (exact first-order discretisation) |
 
-### 2. 6-DoF Equations of Motion
-The lander state is defined by 13 independent quantities:
+The *achieved* actuator state (after lag and saturation) enters the dynamics; the engine produces no force
+once propellant is exhausted.
 
-$$\mathbf{x} = \left[\mathbf{p}^T, \mathbf{v}^T, \mathbf{q}^T, \boldsymbol{\omega}^T\right]^T \in \mathbb{R}^{13}$$
+## Terrain (`simulation/touchdown/terrain.py`)
+2 km × 2 km at 4 m: fractal relief (FFT 1/f^1.9 noise), regional slope, parabolic craters with rims,
+Pareto-distributed rock population (kept as discrete objects), optional hidden boulder field.
 
-where:
-- $\mathbf{p} = [p_x, p_y, p_z]^T$: World-frame position ($\text{m}$)
-- $\mathbf{v} = [v_x, v_y, v_z]^T$: World-frame linear velocity ($\text{m/s}$)
-- $\mathbf{q} = [q_w, q_x, q_y, q_z]^T$: Unit quaternion representing orientation from body to world frame
-- $\boldsymbol{\omega} = [\omega_x, \omega_y, \omega_z]^T$: Body-frame angular velocity ($\text{rad/s}$)
+## Touchdown evaluation (truth)
+Success requires |v_z| ≤ 2.5 m/s, v_h ≤ 1.2 m/s, tilt ≤ 10°, footprint slope ≤ 12°, no rock > 0.4 m under the
+2.2 m footprint. No post-contact dynamics are simulated.
 
-#### Translational Dynamics
-$$\dot{\mathbf{p}} = \mathbf{v}$$
-$$m(t) \dot{\mathbf{v}} = \mathbf{F}_{\text{thrust}} + \mathbf{F}_{\text{aero}} + m(t) \mathbf{g}$$
-
-where $\mathbf{g} = [0, 0, -g_{\text{mars}}]^T$.
-
-#### Rotational Dynamics
-$$\dot{\mathbf{q}} = \frac{1}{2} \boldsymbol{\Omega}(\boldsymbol{\omega}) \mathbf{q} = \frac{1}{2} \begin{bmatrix} 0 & -\omega_x & -\omega_y & -\omega_z \\ \omega_x & 0 & \omega_z & -\omega_y \\ \omega_y & -\omega_z & 0 & \omega_x \\ \omega_z & \omega_y & -\omega_x & 0 \end{bmatrix} \begin{bmatrix} q_w \\ q_x \\ q_y \\ q_z \end{bmatrix}$$
-
-$$\mathbf{I} \dot{\boldsymbol{\omega}} + \boldsymbol{\omega} \times (\mathbf{I} \boldsymbol{\omega}) = \boldsymbol{\tau}_{\text{rcs}} + \boldsymbol{\tau}_{\text{gimbal}}$$
-
-with vehicle inertia tensor $\mathbf{I} = \text{diag}(I_{xx}, I_{yy}, I_{zz})$.
-
----
-
-### 3. Propulsion & Variable Mass Model
-The variable vehicle mass $m(t) = m_{\text{dry}} + m_{\text{fuel}}(t)$ depletes continuously via propellant mass flow:
-
-$$\dot{m}_{\text{fuel}} = -\left(\frac{T_{\text{main}}}{g_0 I_{\text{sp,main}}} + \frac{\|\mathbf{F}_{\text{rcs}}\|_1}{g_0 I_{\text{sp,rcs}}}\right)$$
-
-- Main Thruster Throttle: $u \in [0.15, 1.0]$, max thrust $T_{\max} = 5500\,\text{N}$, $I_{\text{sp}} = 285\,\text{s}$.
-- Reaction Control System (RCS): 8 bi-propellant cold/warm gas nozzles, torque authority $\pm 120\,\text{N}\cdot\text{m}$, $I_{\text{sp,rcs}} = 210\,\text{s}$.
-- Numerical Integration: 4th-Order Runge-Kutta (RK4) evaluated at $100\,\text{Hz}$ ($dt = 0.01\,\text{s}$).
+## Sensors (`simulation/touchdown/sensors.py`)
+| Channel | Rate | Noise (1σ) | Other |
+|---|---|---|---|
+| IMU accel / gyro | 100 Hz | 0.03 m/s², 1.5 mrad/s | bias + random walk |
+| Radar altimeter | 20 Hz | 0.6 m | 1 % dropout, < 6 km |
+| Doppler velocimeter | 10 Hz | 0.12 m/s | 1 % dropout, < 4 km |
+| TRN position | 2 Hz | 4, 4, 6 m | 0.1 s delay, 2 % dropout |
+| Star tracker | 10 Hz | 2 mrad | — |
+| Fuel gauge | 1 Hz | 1.5 kg | — |
+Noise, bias, delay, rate, dropout and degradation are configurable per channel and injectable live.

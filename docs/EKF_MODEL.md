@@ -1,67 +1,32 @@
-# ASTRA Extended Kalman Filter (EKF) Model
-## 9-State Touchdown & 7-State Rover Non-Linear State Estimation
+# Extended Kalman Filters
 
-### 1. Mathematical Foundations
-Both the Touchdown lander and Rover systems use Extended Kalman Filtering (EKF) to estimate full pose and velocities from noisy, biased, and delayed sensors.
+Both filters keep **estimate** and **covariance** separate from ground truth; the UI plots actual error
+against ±2σ. Covariance describes the filter's belief — it is not evidence of accuracy.
 
-To prevent numerical covariance divergence caused by finite-precision floating-point arithmetic, ASTRA implements the **Joseph Stabilized Covariance Update Formulation**:
+## Lander EKF (`autonomy/estimation/lander_ekf.py`)
+State x (12) = [p, v, θ (roll, pitch, yaw), b_a (accelerometer bias)]. Inputs: accelerometer f_b, gyro ω_b.
+```
+p⁺ = p + v Δt
+v⁺ = v + (R(θ)(f_b − b_a) + g) Δt
+θ⁺ = θ + E(θ) ω_b Δt            (ZYX Euler kinematics, |cos pitch| floored at 1e-3)
+b_a⁺ = b_a
+F = ∂f/∂x : identity blocks analytic; ∂(R a)/∂θ and ∂(E ω)/∂θ by central differences (ε = 1e-6)
+Q: position ½σ_a Δt², velocity σ_a²Δt, attitude σ_g²Δt, bias σ_b²Δt
+```
+Measurements: TRN position (H = [I 0 0 0]), Doppler velocity, star-tracker attitude (angle-wrapped
+innovation), altimeter h(x) = p_z − DEM(p_x, p_y) with H = [−∂DEM/∂x, −∂DEM/∂y, 1, 0…] using the onboard
+orbital DEM (not true terrain). σ_alt = 1 m + 0.2 % range.
 
-$$\mathbf{P}_k = (\mathbf{I} - \mathbf{K}_k \mathbf{H}_k) \mathbf{P}_k^- (\mathbf{I} - \mathbf{K}_k \mathbf{H}_k)^T + \mathbf{K}_k \mathbf{R}_k \mathbf{K}_k^T$$
+Safeguards: χ² gating (99.9 %: 10.83 for 1 dof, 16.27 for 3 dof), Joseph-form update, symmetrisation,
+eigenvalue floor 1e-10. Innovation, S and NIS are recorded per sensor.
 
-This guarantees that $\mathbf{P}_k$ remains strictly symmetric and positive semi-definite for all $k \ge 0$.
-
----
-
-### 2. Module 1: Touchdown EKF (9 States)
-#### State Vector
-$$\mathbf{x}_{\text{edl}} = [p_x, p_y, p_z, v_x, v_y, v_z, \phi, \theta, \psi]^T \in \mathbb{R}^9$$
-where $[\phi, \theta, \psi]$ are Roll, Pitch, and Yaw Euler angles.
-
-#### Non-Linear Transition Model $\mathbf{f}(\mathbf{x}, \mathbf{u})$
-$$\dot{\mathbf{p}} = \mathbf{v}$$
-$$\dot{\mathbf{v}} = \mathbf{R}(\boldsymbol{\theta}) \mathbf{a}_{\text{imu}} + \begin{bmatrix} 0 \\ 0 \\ -g_{\text{mars}} \end{bmatrix}$$
-$$\dot{\boldsymbol{\theta}} = \mathbf{T}(\boldsymbol{\theta}) \boldsymbol{\omega}_{\text{imu}}$$
-
-where $\mathbf{R}(\boldsymbol{\theta})$ is the direction cosine rotation matrix and $\mathbf{T}(\boldsymbol{\theta})$ is the kinematic matrix relating body rates to Euler angle rates:
-
-$$\mathbf{T}(\phi, \theta) = \begin{bmatrix} 1 & \sin\phi \tan\theta & \cos\phi \tan\theta \\ 0 & \cos\phi & -\sin\phi \\ 0 & \sin\phi \sec\theta & \cos\phi \sec\theta \end{bmatrix}$$
-
-#### Measurement Vector $\mathbf{z}_{\text{edl}} \in \mathbb{R}^6$
-$$\mathbf{z} = [z_{\text{altimeter}}, v_{x,\text{radar}}, v_{y,\text{radar}}, v_{z,\text{radar}}, p_{x,\text{radar}}, p_{y,\text{radar}}]^T$$
-
-Innovation vector:
-$$\tilde{\mathbf{y}}_k = \mathbf{z}_k - \mathbf{h}(\mathbf{x}_k^-)$$
-
----
-
-### 3. Module 2: Rover EKF (7 States)
-#### State Vector
-$$\mathbf{x}_{\text{rov}} = [p_x, p_y, p_z, v_x, v_y, \psi_{\text{heading}}, \omega_z]^T \in \mathbb{R}^7$$
-
-#### Kinematic Transition Model
-$$\begin{aligned}
-p_{x,k+1} &= p_{x,k} + (v_{x,k} \cos\psi_k - v_{y,k} \sin\psi_k) \Delta t \\
-p_{y,k+1} &= p_{y,k} + (v_{x,k} \sin\psi_k + v_{y,k} \cos\psi_k) \Delta t \\
-p_{z,k+1} &= f_{\text{terrain}}(p_{x,k}, p_{y,k}) \\
-v_{x,k+1} &= v_{x,k} + a_{x,\text{imu}} \Delta t \\
-v_{y,k+1} &= v_{y,k} + a_{y,\text{imu}} \Delta t \\
-\psi_{k+1} &= \psi_k + \omega_{z,\text{imu}} \Delta t \\
-\omega_{z,k+1} &= \omega_{z,\text{imu}}
-\end{aligned}$$
-
-#### Measurements
-- Wheel Odometry speed $v_{\text{odo}} = \frac{R}{6} \sum_{i=1}^6 \omega_i$
-- Gyroscope yaw rate $\omega_{\text{gyro}}$
-- Optical / Beacon position fixes $[p_{x,\text{opt}}, p_{y,\text{opt}}]$
-
----
-
-### 4. Innovation Tracking & Fault Residuals
-Innovations $\tilde{\mathbf{y}}_k$ are tracked in a circular buffer. The normalized innovation squared (NIS):
-
-$$\epsilon_k = \tilde{\mathbf{y}}_k^T \mathbf{S}_k^{-1} \tilde{\mathbf{y}}_k$$
-
-where $\mathbf{S}_k = \mathbf{H}_k \mathbf{P}_k^- \mathbf{H}_k^T + \mathbf{R}_k$ is the innovation covariance.
-
-When $\epsilon_k > \chi^2_{m, 1-\alpha}$, an anomaly event is raised.
-**Crucially, in ASTRA an EKF residual is evidence of model mismatch, not automatic proof of a specific fault.** The Bayesian classifier cross-references EKF residuals with battery telemetry, wheel slip, and sensor validity before asserting a fault type.
+## Rover EKF (`autonomy/estimation/rover_ekf.py`)
+State (8) = [x, y, z, v, ψ, ω, roll, pitch].
+```
+x⁺ = x + v cosψ cosθ Δt,  y⁺ = y + v sinψ cosθ Δt,  z⁺ = z − v sinθ Δt,  ψ⁺ = ψ + ωΔt
+```
+Analytic Jacobian. Measurements: wheel odometry v (σ = 0.03 + (0.15 + 0.8·slip)|v| — slip-aware), gyro yaw rate,
+IMU roll/pitch, visual localisation [x, y, z, ψ] at 1 Hz (gate 30).
+**Relocalisation:** three consecutive gated-out fixes are treated as filter divergence (over-confident P):
+position/heading variance is inflated by the squared innovation and the fix is re-applied. This was added after
+observing slip-induced divergence (σ = 0.06 m with 1.08 m true error) during development.

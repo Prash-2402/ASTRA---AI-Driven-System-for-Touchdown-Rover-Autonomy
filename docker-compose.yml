@@ -1,56 +1,20 @@
-version: '3.8'
-
 services:
   db:
-    image: postgres:16-alpine
-    container_name: astra-postgres
-    restart: unless-stopped
+    image: postgres:16
+    environment: { POSTGRES_USER: astra, POSTGRES_PASSWORD: astra, POSTGRES_DB: astra }
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U astra"], interval: 5s, retries: 10 }
+  api:
+    build: { context: ., dockerfile: docker/api.Dockerfile }
     environment:
-      POSTGRES_USER: astra
-      POSTGRES_PASSWORD: astrasecret
-      POSTGRES_DB: astra_db
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U astra -d astra_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  backend:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.backend
-    container_name: astra-backend
-    restart: unless-stopped
-    environment:
-      - DATABASE_URL=postgresql://astra:astrasecret@db:5432/astra_db
-      - API_HOST=0.0.0.0
-      - API_PORT=8000
-    ports:
-      - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-    volumes:
-      - ./backend:/app/backend
-      - ./simulation:/app/simulation
-      - ./autonomy:/app/autonomy
-      - ./experiments:/app/experiments
-      - ./shared:/app/shared
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: ../docker/Dockerfile.frontend
-    container_name: astra-frontend
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend
-
-volumes:
-  postgres_data:
+      ASTRA_DATABASE_URL: postgresql+psycopg2://astra:astra@db:5432/astra
+      ASTRA_DATA_DIR: /data
+    volumes: [astradata:/data, ./machine_learning/checkpoints:/app/machine_learning/checkpoints]
+    ports: ["8000:8000"]
+    depends_on: { db: { condition: service_healthy } }
+  web:
+    build: { context: ., dockerfile: docker/web.Dockerfile }
+    ports: ["5173:80"]
+    depends_on: [api]
+volumes: { pgdata: {}, astradata: {} }

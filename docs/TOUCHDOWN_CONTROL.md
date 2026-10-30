@@ -1,43 +1,42 @@
-# ASTRA Touchdown Control Architecture
-## Cascade PID, Receding-Horizon MPC, and Terminal Guidance
+# Touchdown Guidance & Control
 
-### 1. Control Hierarchy
-ASTRA Touchdown provides three swappable, physics-grounded guidance and control architectures:
-1. **Cascade PID Controller:** Classical dual-loop feedback with anti-windup.
-2. **Model Predictive Control (MPC):** Constrained receding-horizon optimization.
-3. **Proximal Policy Optimization (PPO):** Continuous reinforcement learning policy trained on stochastic wind disturbances and mass variations.
+All guidance laws output a desired non-gravitational acceleration **a_cmd** (world frame). A shared
+inner loop converts it to actuator commands, so controller comparisons isolate the guidance law.
 
----
+## Thrust allocation & attitude control (`lander_allocation.py`)
+1. T = m·a_cmd (T_z ≥ 0.05 m). Desired body-z = T/|T|, limited to tilt_max = 30°.
+2. throttle = (T · z_b) / T_max (projection on the current thrust axis).
+3. Lateral thrusters supply the residual T − throttle·T_max·z_b (body x/y).
+4. Attitude PD: e = Rᵀ(z_b × z_des), yaw hold; τ = I(ω_n² e − 2ζω_n ω), ω_n = 2.2 rad/s, ζ = 0.9; saturated.
 
-### 2. Cascade PID Controller
-The cascade controller decouples vehicle control into three physical loops:
+## Descent profile (`descent_profile.py`)
+v_z,des = −max(v_td, min(√(2 a h), v_td + 0.15 h, 75)), a = 1 m/s², v_td = 0.7 m/s.
+v_h,des = k_h (target − p), |v_h| ≤ min(40, 0.08 h + 1). Below 120 m with > 4 m horizontal error the
+vertical rate is reduced so lateral alignment finishes first.
 
-#### Vertical Descent Loop
-$$\Delta z = p_z - p_{z,\text{target}}$$
-$$v_{z,\text{des}} = f(\Delta z) = \begin{cases} -25.0\,\text{m/s} & \Delta z > 500\,\text{m} \\ -12.0\,\text{m/s} & 100 < \Delta z \le 500\,\text{m} \\ -4.0\,\text{m/s} & 20 < \Delta z \le 100\,\text{m} \\ -1.5\,\text{m/s} & 2 < \Delta z \le 20\,\text{m} \\ -0.6\,\text{m/s} & \Delta z \le 2\,\text{m} \end{cases}$$
+## Cascade PID (`lander_pid.py`)
+Position/altitude → (profile) → velocity → PID → acceleration (+g) → allocation → attitude PD → torque.
+Gains: horizontal kp 0.45, ki 0.04 (|a| ≤ 3 m/s²); vertical kp 0.9, ki 0.08 (−4…6 m/s²).
+Anti-windup: conditional integration (integrate only when unsaturated or when the error drives out of
+saturation) plus an integrator clamp.
 
-$$e_{vz} = v_{z,\text{des}} - v_z$$
-$$F_{\text{demand}} = m g_{\text{mars}} + m \left( K_{p,vz} e_{vz} + K_{i,vz} \int e_{vz} dt + K_{d,vz} \dot{e}_{vz} \right)$$
-$$u_{\text{throttle}} = \text{clip}\left(\frac{F_{\text{demand}} / \cos(\theta_{\text{tilt}})}{T_{\max}}, 0.15, 1.0\right)$$
+## Model Predictive Control (`lander_mpc.py`)
+Point-mass prediction with gravity, step 0.5 s, horizon N = 16 (8 s), control horizon Nc = 5 (move blocking).
+```
+min Σ_k Q_v‖v_k − v_ref,k‖² + Q_p‖p_k − p_ref,k‖² + R‖u_k − g ẑ‖² + R_Δ‖u_k − u_{k−1}‖² + W_gs·Σ max(0, tan γ‖p_xy − t_xy‖ − (p_z − h_t))²
+s.t. ‖u_k‖² ≤ a_max²,  u_z ≥ a_min,  ‖u_xy‖ ≤ tan(tilt_max)·u_z
+```
+Q_v 1, Q_p 0.02, R 0.05, R_Δ 0.3, W_gs 2, γ = 15°. Reference = kinematic roll-out of the descent profile.
+Solved with SLSQP (≤ 60 iterations, warm-started) every 0.25 s from the **estimated** state; the first input
+is applied; the solution is projected onto the constraint set if SLSQP returns a marginally infeasible iterate.
+Solve time, iterations and convergence are published in telemetry.
 
-#### Horizontal Translation Loop
-$$e_x = x_{\text{target}} - x, \quad e_y = y_{\text{target}} - y$$
-$$v_{x,\text{des}} = K_{p,xy} e_x, \quad v_{y,\text{des}} = K_{p,xy} e_y$$
-$$\theta_{\text{pitch,des}} = -\frac{K_{p,vxy} (v_{x,\text{des}} - v_x)}{g_{\text{mars}}}, \quad \theta_{\text{roll,des}} = \frac{K_{p,vxy} (v_{y,\text{des}} - v_y)}{g_{\text{mars}}}$$
+## Trajectory prediction (`touchdown_predictor.py`)
+From the EKF state, roll out a point mass under the profile guidance law with T_max/m and tilt limits and
+rocket-equation fuel use (Δt = 0.25 s) → predicted trajectory, touchdown point and fuel. Displayed as the
+"predicted" path; MPC's own horizon is displayed separately.
 
-#### Attitude Loop
-$$\boldsymbol{\tau}_{\text{rcs}} = -K_{p,\text{att}} (\boldsymbol{\theta} - \boldsymbol{\theta}_{\text{des}}) - K_{d,\text{att}} \boldsymbol{\omega}$$
-
----
-
-### 3. Model Predictive Control (MPC)
-The MPC controller solves a constrained finite-horizon optimal control problem at $10\,\text{Hz}$:
-
-$$\min_{\mathbf{u}_0, \dots, \mathbf{u}_{N-1}} \sum_{k=0}^{N-1} \left( \|\mathbf{p}_k - \mathbf{p}_{\text{target}}\|_{\mathbf{Q}_p}^2 + \|\mathbf{v}_k - \mathbf{v}_{\text{ref},k}\|_{\mathbf{Q}_v}^2 + R_u (u_k - u_{\text{hover}})^2 \right) + \|\mathbf{p}_N - \mathbf{p}_{\text{target}}\|_{\mathbf{Q}_{fp}}^2 + \|\mathbf{v}_N - \mathbf{v}_{\text{target}}\|_{\mathbf{Q}_{fv}}^2$$
-
-Subject to:
-$$0.15 \le u_k \le 1.0 \quad (\text{Throttling limits})$$
-$$|\theta_{\text{pitch},k}| \le 20^\circ, \quad |\theta_{\text{roll},k}| \le 20^\circ \quad (\text{Attitude tilt limits})$$
-$$v_{z,N} \ge -2.0\,\text{m/s} \quad (\text{Touchdown velocity envelope})$$
-
-Solved using Sequential Least Squares Quadratic Programming (SLSQP) with warm-starting across prediction steps.
+## Mission supervisor (`touchdown_supervisor.py`)
+PRE-LAUNCH → ENTRY (coast, RCS holds attitude) → DESCENT (engine lit at ignition AGL) → LANDING APPROACH
+(≤ 700 m) → SITE ASSESSMENT (lidar in range, ≤ 450 m) → [DIVERSION | ABORT] → TOUCHDOWN → MISSION COMPLETE | FAILED.
+Illegal transitions raise an error; every transition stores time and reason.

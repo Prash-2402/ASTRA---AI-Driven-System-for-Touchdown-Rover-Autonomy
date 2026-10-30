@@ -1,34 +1,18 @@
-# ASTRA Landing Hazard Assessment
-## Real-Time Optical and Radar Terrain Safety Evaluation
+# Landing Hazard Assessment
 
-### 1. Hazard Detection Scope
-During terminal descent, the designated primary landing site may be compromised by:
-- Steep surface slopes exceeding lander leg tip-over limits ($\theta_{\text{slope}} > 8.0^\circ$).
-- Impact craters with elevated rims and steep central depressions.
-- Boulder fields producing excessive local surface roughness ($R_a > 0.15\,\text{m}$).
+## Perceived vs true terrain
+- **True terrain** (`simulation/touchdown/terrain.py`) is used only by physics, sensor synthesis and the evaluator.
+- **Orbital DEM** (`OrbitalDEM`): 5×5 block-averaged truth + 0.5 m noise, no rocks — the onboard prior.
+- **Lidar hazard map** (`PerceivedHazardMap`): scans below 900 m (used from 450 m), ground radius
+  clip(0.45·AGL, 40, 220) m on a 2 m grid. Height noise σ = 0.08 + 0.0006·AGL m. Rocks detected if
+  height ≥ 0.15 + 0.0009·AGL m with probability 0.95, position noise 0.3 + 0.002·AGL m. Everything is placed
+  using the **estimated** lander position, so navigation error becomes map registration error.
 
-ASTRA implements an autonomous surface hazard evaluation pipeline operating at $10\,\text{Hz}$ between $500\,\text{m}$ and $50\,\text{m}$ altitude.
-
----
-
-### 2. Terrain Slope & Surface Normal Computation
-Given local terrain elevation $z = f(x, y)$, surface gradients are evaluated via finite differences:
-
-$$g_x = \frac{\partial z}{\partial x} \approx \frac{f(x + \Delta x, y) - f(x - \Delta x, y)}{2 \Delta x}$$
-$$g_y = \frac{\partial z}{\partial y} \approx \frac{f(x, y + \Delta y) - f(x, y - \Delta y)}{2 \Delta y}$$
-
-The unnormalized surface normal vector:
-$$\mathbf{n} = \begin{bmatrix} -g_x \\ -g_y \\ 1 \end{bmatrix}, \quad \hat{\mathbf{n}} = \frac{\mathbf{n}}{\|\mathbf{n}\|}$$
-
-The terrain slope angle relative to the local horizontal plane:
-$$\theta_{\text{slope}} = \arccos(\hat{n}_z) = \arctan\left(\sqrt{g_x^2 + g_y^2}\right)$$
-
----
-
-### 3. Hazard Cost Function
-Each candidate site is assigned a composite hazard cost:
-
-$$J_{\text{hazard}} = w_{\text{slope}} \max(0, \theta_{\text{slope}} - \theta_{\text{allow}}) + w_{\text{rough}} R_a + \sum_{i=1}^{N_{\text{craters}}} C_i \exp\left(-\frac{\|\mathbf{p}_{\text{site}} - \mathbf{p}_{\text{crater},i}\|^2}{2 r_{\text{crater},i}^2}\right)$$
-
-A candidate is marked impassable/unreachable if:
-$$\theta_{\text{slope}} > 8.0^\circ \quad \text{or} \quad J_{\text{hazard}} > 0.70$$
+## Site assessment (`LandingSiteAssessor`)
+Margin = 2·σ_pos,h (EKF). Over the footprint (2.2 m) + margin:
+- slope: least-squares plane fit;
+- relief: √max(0, mean residual² − mean sensor-noise²) — noise-corrected (without the correction the metric
+  measured lidar noise at 450 m and rejected flat sites; found and fixed during development);
+- max perceived rock height and nearest-rock distance.
+Hard limits: slope ≤ 10°, rock ≤ 0.35 m, relief ≤ 0.30 m. Score = 1 − 0.45·slope/10 − 0.35·rock/0.35 − 0.1·relief/0.3 − 0.1·proximity.
+Unsensed sites are "not yet sensed", never "safe".
