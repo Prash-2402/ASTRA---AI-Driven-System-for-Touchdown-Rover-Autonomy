@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from backend.orchestration.session import manager
-from shared.enums import FaultType
+from shared.enums import FaultType, SimStatus
 from shared.schemas.api import (FaultInjectRequest, RoverConfigRequest, RoverEnvironment, RoverObstacle, SpeedRequest,
                                 StartRequest)
 from simulation.rover.faults import DEFAULT_PARAMS
@@ -34,9 +34,12 @@ def _configure(req: RoverConfigRequest):
             raise HTTPException(422, f"unknown fault type {f.get('fault_type')}; taxonomy is closed: {[x.value for x in FaultType]}")
     old = manager.get("rover")
     if old is not None:
-        old.reset()
+        old._stop.set()
+        if old._thread and old._thread.is_alive():
+            old._thread.join(timeout=5)
         with old.lock:
             old.mission.close()
+        old.status = SimStatus.IDLE        # already torn down: the manager must not reset it again
     return manager.configure("rover", lambda: RoverMission(RoverConfig.from_dict(d)), d)
 
 
@@ -80,9 +83,7 @@ def stop():
 @router.post("/reset")
 def reset():
     s = _session()
-    with s.lock:
-        s.mission.close()
-    s.reset()
+    s.reset()               # stops the worker first, then closes the old mission
     return s.info()
 
 
@@ -200,11 +201,10 @@ def costmap():
     """Perceived traversability cost, hard constraints and slope (the planner's own view of the terrain)."""
     import numpy as np
 
-    from autonomy.planning.traversability import build_costmap
     s = _session()
     with s.lock:
         m = s.mission
-        cost, hard, info = build_costmap(m.map, m.weights, m.ekf.pos_sigma(), float(np.min(m.actuator_health_est)))
+        cost, hard, info = m._costmap()
         slope = m.map.slope()
         seen = (m.map.seen_t >= 0)
     return {"cell": 1.0, "size_m": 60.0, "cost": np.round(np.where(hard, -1, cost), 2).tolist(),

@@ -138,49 +138,55 @@ export default function TouchdownPage({ env, diversion, features }: { env: "mars
             showPaths={features.paths} showScan={features.scan && !inReplay} env={viewEnv} placing={placing && features.obstacles && !inReplay} onPlace={(x, y) => placeObstacle(x, y)} /></Suspense>
           : <div className="h-full grid place-items-center eyebrow">{inReplay ? (replay.err ?? "Loading the recorded landing…") : "Loading terrain…"}</div>}
 
-        <div className="absolute top-3 left-3 right-3 flex flex-wrap justify-between gap-2">
-          <div className="flex flex-wrap gap-2 items-start">
-            <CamSwitch value={cam} onChange={setCam} modes={[["front", "Front view"], ["frontWide", "Front · wide"], ["free", "Free view"]]} />
-            {features.obstacles && !inReplay && <>
-              <button className="hud px-3 py-1.5 text-[11.5px] text-[var(--danger)]" onClick={() => placeObstacle()}>⚠ Spawn obstacle at pad</button>
-              <button className={`hud px-3 py-1.5 text-[11.5px] ${placing ? "!bg-[var(--danger)] !text-white" : "text-[var(--ink-secondary)]"}`} onClick={() => setPlacing(!placing)}>
-                {placing ? "● Click the surface · done" : "＋ Place obstacles"}</button></>}
+        {/* one overlay layer laid out in flow: toolbar, then notices, then the bottom HUD row -
+            notices can never sit on top of a button, and they never take clicks */}
+        <div className="absolute inset-3 flex flex-col gap-2 pointer-events-none">
+          <div className="flex flex-wrap justify-between gap-2 pointer-events-auto">
+            <div className="flex flex-wrap gap-2 items-start">
+              <CamSwitch value={cam} onChange={setCam} modes={[["front", "Front view"], ["frontWide", "Front · wide"], ["free", "Free view"]]} />
+              {features.obstacles && !inReplay && <>
+                <button className="hud px-3 py-1.5 text-[11.5px] text-[var(--danger)]" onClick={() => placeObstacle()}>⚠ Spawn obstacle at pad</button>
+                <button className={`hud px-3 py-1.5 text-[11.5px] ${placing ? "!bg-[var(--danger)] !text-white" : "text-[var(--ink-secondary)]"}`} onClick={() => setPlacing(!placing)}>
+                  {placing ? "● Click the surface · done" : "＋ Place obstacles"}</button></>}
+            </div>
+            <div className="flex flex-wrap gap-2 items-start">
+              {!inReplay && <div className="seg hud !p-[3px]">{([["none", "No overlay"], ["slope", "Slope"], ["hazard", "Hazard map"]] as const).map(([o, l]) =>
+                <button key={o} className={overlay === o ? "on" : ""} onClick={() => setOverlay(o)}>{l}</button>)}</div>}
+              <button className="hud px-3 py-1.5 text-[11.5px] text-[var(--ink-secondary)]" onClick={() => setHud(!hud)}>{hud ? "◐ Hide HUD" : "◑ Show HUD"}</button>
+              <button className="hud px-3 py-1.5 text-[11.5px] text-[var(--ink-secondary)]" onClick={toggleFs}>{fs ? "⤡ Exit fullscreen" : "⛶ Fullscreen"}</button>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2 items-start">
-            {fs && !inReplay && <div className="hud px-2 py-1"><SimControls module="touchdown" status={live?.status} speed={live?.speed} /></div>}
-            {!inReplay && <div className="seg hud !p-[3px]">{([["none", "No overlay"], ["slope", "Slope"], ["hazard", "Hazard map"]] as const).map(([o, l]) =>
-              <button key={o} className={overlay === o ? "on" : ""} onClick={() => setOverlay(o)}>{l}</button>)}</div>}
-            <button className="hud px-3 py-1.5 text-[11.5px] text-[var(--ink-secondary)]" onClick={() => setHud(!hud)}>{hud ? "◐ Hide HUD" : "◑ Show HUD"}</button>
-            <button className="hud px-3 py-1.5 text-[11.5px] text-[var(--ink-secondary)]" onClick={toggleFs}>{fs ? "⤡ Exit fullscreen" : "⛶ Fullscreen"}</button>
-          </div>
+          {fs && !inReplay && <div className="self-end hud px-2 py-1 pointer-events-auto"><SimControls module="touchdown" status={live?.status} speed={live?.speed} /></div>}
+
+          {!inReplay && <div className="flex flex-col gap-2 max-w-[460px] min-h-0 overflow-hidden">
+            {hov?.active && <div className="rounded-[10px] px-3 py-2 text-[11.5px]" style={{ background: "rgba(14,116,144,.88)", color: "#fff" }}>
+              <b>◎ HOVER & SCAN</b> · {hov.stable_for > 0 ? `holding ${fmt(hov.stable_for, 1)} / ${fmt(hov.duration, 0)} s` : "arresting the descent"} · lidar scanning the pad at 2 Hz</div>}
+            {live && live.diversions > 0 && <div className="rounded-[10px] px-3 py-2 text-[11px] leading-snug" style={{ background: "rgba(127,29,29,.82)", color: "#fff", border: "1px solid rgba(248,113,113,.7)" }}>
+              <div className="font-semibold tracking-wide">⚠ HAZARD DETECTED AT PLANNED PAD ({fmt(orig?.[0], 0)}, {fmt(orig?.[1], 0)})</div>
+              <div className="text-[#bbf7d0] mt-0.5">AUTONOMOUS DIVERT → SAFE SITE ({fmt(f?.target[0], 0)}, {fmt(f?.target[1], 0)}) · {fmt(Math.hypot((f?.target[0] ?? 0) - (orig?.[0] ?? 0), (f?.target[1] ?? 0) - (orig?.[1] ?? 0)), 0)} m away</div>
+              {divEvent && <div className="opacity-80 mt-0.5">t = {fmt(divEvent.t, 1)} s · {divEvent.message}</div>}</div>}
+            {live?.phase === "ABORT" && divEvent?.kind === "abort" && <div className="rounded-[10px] px-3 py-2 text-[11px]" style={{ background: "rgba(146,64,14,.88)", color: "#fff" }}><b>⚠ LATE HAZARD</b> · {divEvent.message}</div>}
+            {(live as any)?.events?.some((e: any) => e.kind === "guard") && <div className="rounded-[10px] px-3 py-2 text-[11px] leading-snug" style={{ background: "rgba(146,64,14,.88)", color: "#fff" }}>
+              <b>⚠ LEARNED CONTROLLER OUTSIDE ITS EXPERIENCE</b><div className="opacity-90">{[...(live?.events || [])].reverse().find((e: any) => e.kind === "guard")?.message}</div></div>}
+            {pendingObstacle && <div className="hud px-3 py-2 text-[11px] text-[var(--warning)]">Obstacle on the pad — lidar not yet in range (AGL {fmt(f?.truth.agl, 0)} m)</div>}
+            {hud && features.scan && per?.scans > 0 && <div className="hud px-3 py-1.5 text-[11px] text-[var(--ink-secondary)]"><span className="text-[#0e7490] font-medium">LIDAR SCAN #{per.scans}</span> · radius {fmt(per.region?.[2], 0)} m · {per.rocks?.length ?? 0} rocks · {per.rocks?.filter((r: number[]) => r[2] > per.hazard_limit_m).length ?? 0} above limit</div>}
+            {note && <div className="hud px-3 py-2 text-[11px] text-ink">{note}</div>}
+          </div>}
+
+          {!inReplay && hud && <div className="mt-auto flex items-end justify-between gap-2">
+            {f ? <div className="hud p-3 w-[230px] shrink-0 space-y-2.5">
+              <Gauge label="Altitude AGL" value={f.truth.agl} max={3000} unit="m" fmt={(v) => v.toFixed(v < 100 ? 1 : 0)} tone="var(--info)" />
+              <Gauge label="Vertical speed" value={-f.truth.velocity[2]} max={100} unit="m/s" fmt={(v) => v.toFixed(2)} />
+              <Gauge label="Throttle" value={f.actuators.throttle * 100} max={100} unit="%" fmt={(v) => v.toFixed(0)} tone="var(--warning)" />
+              <Gauge label="Fuel" value={f.truth.fuel} max={450} unit="kg" fmt={(v) => v.toFixed(0)} tone={f.truth.fuel < 60 ? "var(--danger)" : "var(--success)"} />
+            </div> : <span />}
+            {features.paths && <div className="hidden lg:flex flex-wrap gap-x-3 gap-y-1 hud px-3 py-1.5 text-[10.5px] text-[var(--ink-secondary)] min-w-0">
+              {LEGEND.map(([c, l, dashed]) => <span key={l} className="flex items-center gap-1.5"><span className="inline-block w-4 h-[3px] rounded" style={{ background: dashed ? `repeating-linear-gradient(90deg, ${c} 0 4px, transparent 4px 7px)` : c }} />{l}</span>)}
+            </div>}
+            {phase ? <div className="hud p-3 max-w-[350px] shrink text-[12px] leading-relaxed text-[var(--ink-secondary)] hidden md:block">
+              <div className="eyebrow !text-[9.5px] mb-1 text-[var(--primary)]">What is happening · {phase}</div>{EXPLAIN[phase] ?? ""}</div> : <span />}
+          </div>}
         </div>
-
-        {!inReplay && <div className="absolute top-[54px] left-3 flex flex-col gap-2 max-w-[460px] pointer-events-none">
-          {hov?.active && <div className="rounded-[10px] px-3 py-2 text-[11.5px]" style={{ background: "rgba(14,116,144,.88)", color: "#fff" }}>
-            <b>◎ HOVER & SCAN</b> · {hov.stable_for > 0 ? `holding ${fmt(hov.stable_for, 1)} / ${fmt(hov.duration, 0)} s` : "arresting the descent"} · lidar scanning the pad at 2 Hz</div>}
-          {live && live.diversions > 0 && <div className="rounded-[10px] px-3 py-2 text-[11px] leading-snug" style={{ background: "rgba(127,29,29,.82)", color: "#fff", border: "1px solid rgba(248,113,113,.7)" }}>
-            <div className="font-semibold tracking-wide">⚠ HAZARD DETECTED AT PLANNED PAD ({fmt(orig?.[0], 0)}, {fmt(orig?.[1], 0)})</div>
-            <div className="text-[#bbf7d0] mt-0.5">AUTONOMOUS DIVERT → SAFE SITE ({fmt(f?.target[0], 0)}, {fmt(f?.target[1], 0)}) · {fmt(Math.hypot((f?.target[0] ?? 0) - (orig?.[0] ?? 0), (f?.target[1] ?? 0) - (orig?.[1] ?? 0)), 0)} m away</div>
-            {divEvent && <div className="opacity-80 mt-0.5">t = {fmt(divEvent.t, 1)} s · {divEvent.message}</div>}</div>}
-          {live?.phase === "ABORT" && divEvent?.kind === "abort" && <div className="rounded-[10px] px-3 py-2 text-[11px]" style={{ background: "rgba(146,64,14,.88)", color: "#fff" }}><b>⚠ LATE HAZARD</b> · {divEvent.message}</div>}
-          {(live as any)?.events?.some((e: any) => e.kind === "guard") && <div className="rounded-[10px] px-3 py-2 text-[11px] leading-snug" style={{ background: "rgba(146,64,14,.88)", color: "#fff" }}>
-            <b>⚠ LEARNED CONTROLLER OUTSIDE ITS EXPERIENCE</b><div className="opacity-90">{[...(live?.events || [])].reverse().find((e: any) => e.kind === "guard")?.message}</div></div>}
-          {pendingObstacle && <div className="hud px-3 py-2 text-[11px] text-[var(--warning)]">Obstacle on the pad — lidar not yet in range (AGL {fmt(f?.truth.agl, 0)} m)</div>}
-          {hud && features.scan && per?.scans > 0 && <div className="hud px-3 py-1.5 text-[11px] text-[var(--ink-secondary)]"><span className="text-[#0e7490] font-medium">LIDAR SCAN #{per.scans}</span> · radius {fmt(per.region?.[2], 0)} m · {per.rocks?.length ?? 0} rocks · {per.rocks?.filter((r: number[]) => r[2] > per.hazard_limit_m).length ?? 0} above limit</div>}
-          {note && <div className="hud px-3 py-2 text-[11px] text-ink">{note}</div>}
-        </div>}
-
-        {hud && f && !inReplay && <div className="absolute bottom-3 left-3 hud p-3 w-[230px] space-y-2.5">
-          <Gauge label="Altitude AGL" value={f.truth.agl} max={3000} unit="m" fmt={(v) => v.toFixed(v < 100 ? 1 : 0)} tone="var(--info)" />
-          <Gauge label="Vertical speed" value={-f.truth.velocity[2]} max={100} unit="m/s" fmt={(v) => v.toFixed(2)} />
-          <Gauge label="Throttle" value={f.actuators.throttle * 100} max={100} unit="%" fmt={(v) => v.toFixed(0)} tone="var(--warning)" />
-          <Gauge label="Fuel" value={f.truth.fuel} max={450} unit="kg" fmt={(v) => v.toFixed(0)} tone={f.truth.fuel < 60 ? "var(--danger)" : "var(--success)"} />
-        </div>}
-        {hud && features.paths && !inReplay && <div className="absolute bottom-3 left-[252px] right-3 md:right-[370px] flex flex-wrap gap-x-3 gap-y-1 hud px-3 py-1.5 text-[10.5px] text-[var(--ink-secondary)] w-fit">
-          {LEGEND.map(([c, l, dashed]) => <span key={l} className="flex items-center gap-1.5"><span className="inline-block w-4 h-[3px] rounded" style={{ background: dashed ? `repeating-linear-gradient(90deg, ${c} 0 4px, transparent 4px 7px)` : c }} />{l}</span>)}
-        </div>}
-        {hud && phase && !inReplay && <div className="absolute bottom-3 right-3 hud p-3 max-w-[350px] text-[12px] leading-relaxed text-[var(--ink-secondary)] hidden md:block">
-          <div className="eyebrow !text-[9.5px] mb-1 text-[var(--primary)]">What is happening · {phase}</div>{EXPLAIN[phase] ?? ""}</div>}
         {inReplay && <div className="absolute bottom-3 left-3 right-3"><ReplayBar r={replay} onExit={() => setReplayUid(null)} /></div>}
         {showCard && <LandingResultCard live={live} onClose={() => setDismissed(live!.run_uid!)}
           onReplay={() => { setDismissed(live!.run_uid!); setReplayUid(live!.run_uid!); }}
@@ -253,8 +259,8 @@ export default function TouchdownPage({ env, diversion, features }: { env: "mars
           <div className="grid md:grid-cols-2 gap-4">
             <Panel eyebrow="Truth vs estimate" title="Altitude"><Series data={hist} lines={[{ key: "agl", name: "AGL truth [m]" }, { key: "agl_est", name: "AGL EKF [m]", dashed: true }]} /></Panel>
             <Panel eyebrow="Estimator" title="Position error vs EKF ±2σ (east axis)"><ErrorVsSigma data={hist} err="err_x" sig="sig_x" /></Panel>
-            <Panel eyebrow="Propulsion" title="Throttle & tilt"><Series data={hist} lines={[{ key: "throttle", name: "throttle [0-1]" }, { key: "tilt", name: "tilt [deg]", color: "#F08C00" }]} /></Panel>
-            <Panel eyebrow="Resources" title="Fuel & vertical velocity"><Series data={hist} lines={[{ key: "fuel", name: "fuel [kg]" }, { key: "vz", name: "vz truth [m/s]", color: "#12B886" }, { key: "vz_est", name: "vz EKF", dashed: true, color: "#E03131" }]} /></Panel>
+            <Panel eyebrow="Propulsion" title="Throttle & tilt"><Series data={hist} lines={[{ key: "throttle", name: "throttle [0-1]" }, { key: "tilt", name: "tilt [deg]", color: "#C77D12" }]} /></Panel>
+            <Panel eyebrow="Resources" title="Fuel & vertical velocity"><Series data={hist} lines={[{ key: "fuel", name: "fuel [kg]" }, { key: "vz", name: "vz truth [m/s]", color: "#2F8F6A" }, { key: "vz_est", name: "vz EKF", dashed: true, color: "#C0392B" }]} /></Panel>
           </div>)}
         {tab === "decisions" && <Panel eyebrow="Explainability" title="Decision audit log"><DecisionLog decisions={decisions.data || []} /></Panel>}
         {tab === "events" && <Panel eyebrow="Timeline" title="Mission events"><EventTimeline events={live?.events || []} max={120} /></Panel>}

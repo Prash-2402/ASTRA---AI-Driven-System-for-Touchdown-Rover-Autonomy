@@ -1,6 +1,6 @@
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Area, ComposedChart } from "recharts";
 
-export const PALETTE = ["#4C6EF5", "#F08C00", "#12B886", "#E03131", "#7950F2", "#1F2937"];
+export const PALETTE = ["#7A1F35", "#C77D12", "#2F8F6A", "#4F6D8A", "#9C6B98", "#57524E"];
 const axis = { stroke: "#8A94A6", fontSize: 10, fontFamily: "JetBrains Mono" };
 
 export function Series({ data, x = "t", lines, height = 180, yLabel, domain }: {
@@ -37,8 +37,8 @@ export function ErrorVsSigma({ data, err, sig, height = 180, k = 2, title }: { d
           <YAxis tick={axis} />
           <Tooltip contentStyle={{ background: "#FFFFFF", border: "1px solid rgba(17,24,39,.1)", borderRadius: 12, fontSize: 11, color: "#111827", boxShadow: "0 8px 24px rgba(16,24,40,.12)" }} formatter={(v: any) => (Array.isArray(v) ? `±${Number(v[1]).toFixed(3)}` : Number(v).toFixed(3))} />
           <Legend wrapperStyle={{ fontSize: 11 }} />
-          <Area dataKey="band" name={`±${k}σ (EKF covariance)`} fill="#4C6EF5" fillOpacity={0.14} stroke="none" isAnimationActive={false} />
-          <Line dataKey="err" name={title ?? "actual error (estimate − truth)"} stroke="#E03131" dot={false} strokeWidth={1.6} isAnimationActive={false} />
+          <Area dataKey="band" name={`±${k}σ (EKF covariance)`} fill="#7A1F35" fillOpacity={0.14} stroke="none" isAnimationActive={false} />
+          <Line dataKey="err" name={title ?? "actual error (estimate − truth)"} stroke="#C0392B" dot={false} strokeWidth={1.6} isAnimationActive={false} />
         </ComposedChart>
       </ResponsiveContainer>
     </div>

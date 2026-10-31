@@ -98,40 +98,46 @@ export default function RoverPage() {
       <div className="grid xl:grid-cols-[1fr_350px] gap-5">
         <div className="space-y-5 min-w-0">
           <div ref={stage} className="panel overflow-hidden relative" style={{ height: fs ? "100vh" : "66vh", minHeight: 460, borderRadius: fs ? 0 : undefined }}>
-            {fs && <div className="absolute top-[54px] right-3 z-10 hud px-2 py-1"><SimControls module="rover" status={live?.status} speed={live?.speed} /></div>}
             {scene ? <Suspense fallback={<div className="p-6 eyebrow">Loading Mars terrain…</div>}>
               <RoverScene snap={live} scene={scene} cam={cam} labels={labels} lidar={lidar} overlay={overlay} costmap={costmap.data} placing={placing} onPlace={place} /></Suspense>
               : <div className="h-full grid place-items-center eyebrow">Loading Mars terrain…</div>}
-            <div className="absolute top-3 left-3 right-3 flex flex-wrap justify-between gap-2">
-              <CamSwitch value={cam} onChange={setCam} modes={[["chase", "Chase"], ["cinematic", "Orbit"], ["observer", "Lander view"], ["overhead", "Overhead"], ["free", "Free"]]} />
-              <div className="flex flex-wrap gap-2">
-                <button className="hud px-3 py-1.5 text-[11.5px] text-[var(--danger)]" onClick={dropOnRoute}>⚠ Drop obstacle on route</button>
-                <button className={`hud px-3 py-1.5 text-[11.5px] ${placing ? "!bg-[var(--danger)] !text-white" : "text-[var(--ink-secondary)]"}`} onClick={() => setPlacing(!placing)}>{placing ? "● Click the ground · done" : "＋ Place obstacles by clicking"}</button>
-                <button className="hud px-3 py-1.5 text-[11.5px] text-[var(--ink-secondary)]" onClick={toggleFs}>{fs ? "⤡ Exit fullscreen" : "⛶ Fullscreen"}</button>
-                <Toggle on={labels} onClick={() => setLabels(!labels)}>Components</Toggle>
-                <Toggle on={lidar} onClick={() => setLidar(!lidar)}>LiDAR</Toggle>
-                <div className="seg hud !p-[3px]">{(["none", "cost", "slope"] as Overlay[]).map((o) => <button key={o} className={overlay === o ? "on" : ""} onClick={() => setOverlay(o)}>{o === "none" ? "No overlay" : o === "cost" ? "Cost" : "Slope"}</button>)}</div>
+            {/* overlay laid out in flow: toolbar, notices below it, HUD row at the bottom - nothing covers a button */}
+            <div className="absolute inset-3 flex flex-col gap-2 pointer-events-none">
+              <div className="flex flex-wrap justify-between gap-2 pointer-events-auto">
+                <CamSwitch value={cam} onChange={setCam} modes={[["chase", "Chase"], ["cinematic", "Orbit"], ["observer", "Lander view"], ["overhead", "Overhead"], ["free", "Free"]]} />
+                <div className="flex flex-wrap gap-2">
+                  <button className="hud px-3 py-1.5 text-[11.5px] text-[var(--danger)]" onClick={dropOnRoute}>⚠ Drop obstacle on route</button>
+                  <button className={`hud px-3 py-1.5 text-[11.5px] ${placing ? "!bg-[var(--danger)] !text-white" : "text-[var(--ink-secondary)]"}`} onClick={() => setPlacing(!placing)}>{placing ? "● Click the ground · done" : "＋ Place obstacles by clicking"}</button>
+                  <button className="hud px-3 py-1.5 text-[11.5px] text-[var(--ink-secondary)]" onClick={toggleFs}>{fs ? "⤡ Exit fullscreen" : "⛶ Fullscreen"}</button>
+                  <Toggle on={labels} onClick={() => setLabels(!labels)}>Components</Toggle>
+                  <Toggle on={lidar} onClick={() => setLidar(!lidar)}>LiDAR</Toggle>
+                  <div className="seg hud !p-[3px]">{(["none", "cost", "slope"] as Overlay[]).map((o) => <button key={o} className={overlay === o ? "on" : ""} onClick={() => setOverlay(o)}>{o === "none" ? "No overlay" : o === "cost" ? "Cost" : "Slope"}</button>)}</div>
+                </div>
+              </div>
+              {fs && <div className="self-end hud px-2 py-1 pointer-events-auto"><SimControls module="rover" status={live?.status} speed={live?.speed} /></div>}
+              <div className="flex flex-col gap-2 max-w-[440px] min-h-0 overflow-hidden">
+                {!env.comms && <div className="rounded-[10px] px-3 py-2 text-[11px]" style={{ background: "rgba(30,41,59,.88)", color: "#fff", border: "1px solid rgba(148,163,184,.6)" }}>
+                  <b>✕ COMMS LOST</b> — the rover continues autonomously; this view is the simulator's, the ground would only see buffered telemetry later.</div>}
+                {env.sandstorm > 0.05 && <div className="rounded-[10px] px-3 py-2 text-[11px]" style={{ background: "rgba(120,53,15,.85)", color: "#fff" }}>
+                  DUST STORM {fmt(env.sandstorm, 2)} · rover-measured optical depth τ = {fmt(ops?.dust_optical_depth, 1)} (returns to the lander above 3.5)</div>}
+                {ops?.mode === "SHELTERING" && <div className="hud px-3 py-2 text-[11px] text-[var(--warning)]">Sheltering at the lander ({ops.shelter_reason})</div>}
+{note && <div className="hud px-3 py-2 text-[11px] text-ink">{note}</div>}
+              </div>
+              <div className="mt-auto flex items-end justify-between gap-2">
+                {overlay !== "none" ? <div className="hud px-3 py-2 text-[11px] text-[var(--ink-secondary)] shrink-0">
+                  <div className="h-2 w-48 rounded" style={{ background: overlay === "cost" ? "linear-gradient(90deg,#2a9d8f,#f2b35b)" : "linear-gradient(90deg,#2a9d8f,#f2b35b,#e63946)" }} />
+                  <div className="flex justify-between w-48 mt-1"><span>{overlay === "cost" ? "easy" : "0°"}</span><span>{overlay === "cost" ? "costly, still drivable" : "25°+"}</span></div>
+                  {overlay === "cost" && <div className="flex items-center gap-1.5 mt-1"><span className="inline-block w-3 h-2 rounded-sm" style={{ background: "#e63946" }} />blocked (rock + safety margin, too steep)</div>}
+                  <div className="mt-1 text-[10.5px]">The planner's own perceived map — not ground truth.</div></div>
+                : <div className="hud px-3 py-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10.5px] text-[var(--ink-secondary)] min-w-0">
+                  <span className="flex items-center gap-1.5"><span className="inline-block w-4 h-[3px] rounded bg-[#6FD3A8]" />Planned route</span>
+                  <span className="flex items-center gap-1.5"><span className="inline-block w-4 h-[3px] rounded bg-white border" />Driven path</span>
+                  <span className="flex items-center gap-1.5"><span className="inline-block w-4 h-[3px] rounded bg-[#6FD3A8] opacity-40" />Earlier routes (re-plans)</span>
+                  {TASK_KINDS.map(([k, l, c]) => <span key={k} className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rotate-45" style={{ background: c }} />{l}</span>)}</div>}
+                {mode && <div className="hud p-3 max-w-[340px] shrink text-[12px] leading-relaxed text-[var(--ink-secondary)] hidden md:block">
+                  <div className="eyebrow !text-[9.5px] mb-1 text-[var(--primary)]">Rover is · {mode}</div>{MODE_TEXT[mode]}</div>}
               </div>
             </div>
-            <div className="absolute top-[54px] left-3 flex flex-col gap-2 max-w-[440px] pointer-events-none">
-              {!env.comms && <div className="rounded-[10px] px-3 py-2 text-[11px]" style={{ background: "rgba(30,41,59,.88)", color: "#fff", border: "1px solid rgba(148,163,184,.6)" }}>
-                <b>✕ COMMS LOST</b> — the rover continues autonomously; this view is the simulator's, the ground would only see buffered telemetry later.</div>}
-              {env.sandstorm > 0.05 && <div className="rounded-[10px] px-3 py-2 text-[11px]" style={{ background: "rgba(120,53,15,.85)", color: "#fff" }}>
-                DUST STORM {fmt(env.sandstorm, 2)} · rover-measured optical depth τ = {fmt(ops?.dust_optical_depth, 1)} (returns to the lander above 3.5)</div>}
-              {ops?.mode === "SHELTERING" && <div className="hud px-3 py-2 text-[11px] text-[var(--warning)]">Sheltering at the lander ({ops.shelter_reason})</div>}
-              {note && <div className="hud px-3 py-2 text-[11px] text-ink">{note}</div>}
-            </div>
-            {overlay !== "none" && <div className="absolute bottom-3 left-3 hud px-3 py-2 text-[11px] text-[var(--ink-secondary)]">
-              <div className="h-2 w-48 rounded" style={{ background: "linear-gradient(90deg,#2a9d8f,#f2b35b,#e63946)" }} />
-              <div className="flex justify-between w-48 mt-1"><span>{overlay === "cost" ? "low cost" : "0°"}</span><span>{overlay === "cost" ? "high · red = hard" : "25°+"}</span></div>
-              <div className="mt-1 text-[10.5px]">The planner's own perceived map — not ground truth.</div></div>}
-            {overlay === "none" && <div className="absolute bottom-3 left-3 hud px-3 py-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10.5px] text-[var(--ink-secondary)]">
-              <span className="flex items-center gap-1.5"><span className="inline-block w-4 h-[3px] rounded bg-[#6FD3A8]" />Planned route</span>
-              <span className="flex items-center gap-1.5"><span className="inline-block w-4 h-[3px] rounded bg-white border" />Driven path</span>
-              <span className="flex items-center gap-1.5"><span className="inline-block w-4 h-[3px] rounded bg-[#6FD3A8] opacity-40" />Earlier routes (re-plans)</span>
-              {TASK_KINDS.map(([k, l, c]) => <span key={k} className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rotate-45" style={{ background: c }} />{l}</span>)}</div>}
-            {mode && <div className="absolute bottom-3 right-3 hud p-3 max-w-[340px] text-[12px] leading-relaxed text-[var(--ink-secondary)] hidden md:block">
-              <div className="eyebrow !text-[9.5px] mb-1 text-[var(--primary)]">Rover is · {mode}</div>{MODE_TEXT[mode]}</div>}
           </div>
           {f && <Panel eyebrow="How the components interact (live)" title="Sense → Estimate → Plan → Decide → Act">
             <div className="grid sm:grid-cols-5 gap-2">
@@ -148,8 +154,8 @@ export default function RoverPage() {
           </Panel>}
           {f ? <div className="grid md:grid-cols-2 gap-5">
             <Panel eyebrow="Estimator" title="Position error vs EKF ±2σ"><ErrorVsSigma data={hist} err="err" sig="sig" /></Panel>
-            <Panel eyebrow="Energy" title="State of charge & power"><Series data={hist} lines={[{ key: "soc", name: "SoC" }]} height={140} /><Series data={hist} lines={[{ key: "power", name: "power [W]", color: "#F08C00" }]} height={140} /></Panel>
-            <Panel eyebrow="Mobility" title="Speed & wheel slip"><Series data={hist} lines={[{ key: "speed", name: "speed [m/s]" }, { key: "slip", name: "slip est.", color: "#E03131" }]} /></Panel>
+            <Panel eyebrow="Energy" title="State of charge & power"><Series data={hist} lines={[{ key: "soc", name: "SoC" }]} height={140} /><Series data={hist} lines={[{ key: "power", name: "power [W]", color: "#C77D12" }]} height={140} /></Panel>
+            <Panel eyebrow="Mobility" title="Speed & wheel slip"><Series data={hist} lines={[{ key: "speed", name: "speed [m/s]" }, { key: "slip", name: "slip est.", color: "#C0392B" }]} /></Panel>
             <Panel eyebrow="Estimator" title="Heading error vs ±2σ"><ErrorVsSigma data={hist} err="herr" sig="hsig" title="|heading error| [rad]" /></Panel>
           </div> : <Empty title="Rover deployed beside the lander">Press Start — the rover will plan and drive to its tasks on its own.</Empty>}
           <Panel eyebrow="Explainability" title="Autonomous decision log"><DecisionLog decisions={decisions.data || []} /></Panel>

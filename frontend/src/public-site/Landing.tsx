@@ -62,7 +62,7 @@ export default function Landing() {
       <header className={`fixed top-0 inset-x-0 z-30 transition-all duration-500 ${scrolled ? "py-3" : "py-6"}`}>
         <div className={`mx-4 md:mx-10 flex items-center justify-between px-4 md:px-6 py-3 ${scrolled ? "glass" : ""}`}>
           <button onClick={() => go("hero")} className="flex items-center gap-3 text-left">
-            <span className="h-display text-2xl tracking-wide">ASTRA</span>
+            <img src="/logo.png" alt="ASTRA" className="h-6 md:h-7 w-auto select-none" draggable={false} />
             <span className="hidden lg:inline land-eyebrow !text-[10px] !tracking-[.2em] opacity-70">Touchdown &amp; Rover Autonomy</span>
           </button>
           <nav className="hidden md:flex items-center gap-7 text-[13px] text-white/70">
@@ -173,7 +173,7 @@ export default function Landing() {
 
         <footer className="relative px-4 md:px-12 py-14 border-t border-white/10 bg-black/40 backdrop-blur-md">
           <div className="flex flex-col md:flex-row justify-between gap-6 text-sm text-white/55">
-            <div><div className="h-display text-3xl text-white">ASTRA</div><div className="mt-1">AI-Driven System for Touchdown &amp; Rover Autonomy</div></div>
+            <div><img src="/logo.png" alt="ASTRA" className="h-8 w-auto select-none" draggable={false} /><div className="mt-1">AI-Driven System for Touchdown &amp; Rover Autonomy</div></div>
             <div className="flex gap-6 flex-wrap">
               {NAV.map(([label, id]) => <button key={id} onClick={() => go(id)} className="hover:text-white">{label}</button>)}
               <Link to="/app" className="hover:text-white">Application</Link>

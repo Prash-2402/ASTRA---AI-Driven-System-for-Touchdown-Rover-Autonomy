@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api } from "../services/api";
 import type { ModuleId } from "../services/types";
+import { useSim } from "../stores/simulation";
 import { ErrorNote, StatusPill } from "./ui";
 
 /** Lifecycle controls bound directly to the backend session endpoints. */
@@ -8,9 +9,15 @@ export default function SimControls({ module, status, speed, onChange }: { modul
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [spd, setSpd] = useState<number>(speed ?? (module === "rover" ? 4 : 2));
+  const ingest = useSim((s) => s.ingest);
   const call = async (action: string, body: any = {}) => {
     setBusy(true); setErr(null);
-    try { await api.post(`/api/${module}/${action}`, body); onChange?.(); } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+    try {
+      await api.post(`/api/${module}/${action}`, body);
+      // reset leaves no worker publishing: pull the fresh mission now so the view, charts and paths start over
+      if (action === "reset" || action === "start") ingest(await api.get(`/api/${module}/telemetry`));
+      onChange?.();
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
   const running = status === "running", paused = status === "paused";
   return (

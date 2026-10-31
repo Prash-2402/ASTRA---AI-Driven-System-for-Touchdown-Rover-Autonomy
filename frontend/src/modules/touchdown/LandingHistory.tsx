@@ -42,7 +42,7 @@ export default function LandingHistory({ onReplay, refreshKey }: { onReplay: (ui
           <td className="pr-3 num">{fmt(s.accuracy_m, 2)} m</td><td className="pr-3 num">± {fmt(s.precision_m, 2)} m</td><td className="pr-3">{pct(s.within_2m)}</td>
           <td className="num">{fmt(s.touchdown_speed, 2)} m/s</td></tr>)}</tbody></table></div>}
       {d && <div className="overflow-x-auto max-h-[460px] scroll-thin"><table className="w-full text-[12px]">
-        <thead className="sticky top-0 bg-white"><tr className="text-left text-muted text-[11px]">{["When", "Controller", "World", "Outcome", "Miss", "Touchdown", "Diversions", "Fuel", "Notes", ""].map((x) => <th key={x} className="py-1.5 pr-3 font-medium">{x}</th>)}</tr></thead>
+        <thead className="sticky top-0 bg-[var(--cream)]"><tr className="text-left text-muted text-[11px]">{["When", "Controller", "World", "Outcome", "Miss", "Touchdown", "Diversions", "Fuel", "Notes", ""].map((x) => <th key={x} className="py-1.5 pr-3 font-medium">{x}</th>)}</tr></thead>
         <tbody>{d.runs.map((r: any) => <tr key={r.run_uid} className="border-t align-middle">
           <td className="py-1.5 pr-3 num text-[11px] text-muted">{r.finished_at ? new Date(r.finished_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
           <td className="pr-3 uppercase">{r.controller}</td><td className="pr-3 capitalize">{r.environment}</td>

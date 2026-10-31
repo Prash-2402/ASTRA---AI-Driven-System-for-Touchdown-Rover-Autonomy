@@ -80,15 +80,26 @@ class SimulationSession:
         self._publish_status()
 
     def reset(self):
+        # stop the worker before touching the mission, so it never steps a mission that is being torn down
         self._stop.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=5)
+        self._thread = None
         with self.lock:
+            old = self.mission
             self._new_mission()
             self.status = SimStatus.IDLE
             self.error = None
             self.persist_error = None
             self.db_run_id = None
+        close = getattr(old, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:  # noqa: BLE001 - a half-closed old mission must not block the reset
+                pass
+        # no worker runs while idle: publish the fresh mission once so every client drops the old run at once
+        self._publish(force=True)
         self._publish_status()
 
     def set_speed(self, speed: float):

@@ -7,7 +7,7 @@ const ax = { fontSize: 10, fontFamily: "JetBrains Mono", fill: "#8A94A6" };
 function RateChart({ rows }: { rows: any[] }) {
   const d = rows.map((r) => ({ name: r.controller, rate: r.completion_rate, err: [r.completion_rate - r.ci_low, r.ci_high - r.completion_rate] }));
   return <div style={{ height: 220 }}><ResponsiveContainer><BarChart data={d}><CartesianGrid stroke="rgba(17,24,39,.06)" vertical={false} /><XAxis dataKey="name" tick={ax} /><YAxis domain={[0, 1]} tick={ax} />
-    <Tooltip contentStyle={{ background: "#FFFFFF", border: "1px solid rgba(17,24,39,.1)", borderRadius: 12, fontSize: 11 }} formatter={(v: any) => (typeof v === "number" ? v.toFixed(3) : v)} /><Bar dataKey="rate" fill="#4C6EF5" radius={[8, 8, 0, 0]}><ErrorBar dataKey="err" stroke="#111827" width={6} /></Bar></BarChart></ResponsiveContainer></div>;
+    <Tooltip contentStyle={{ background: "#FFFFFF", border: "1px solid rgba(38,34,31,.1)", borderRadius: 12, fontSize: 11 }} formatter={(v: any) => (typeof v === "number" ? v.toFixed(3) : v)} /><Bar dataKey="rate" fill="#7A1F35" radius={[8, 8, 0, 0]}><ErrorBar dataKey="err" stroke="#26221F" width={6} /></Bar></BarChart></ResponsiveContainer></div>;
 }
 
 export default function ControllerComparison() {

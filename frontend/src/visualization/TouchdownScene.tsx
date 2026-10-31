@@ -121,7 +121,8 @@ function Lander({ snap, labels, dust, ground, pos }: { snap: TouchdownSnapshot; 
     tq.current.copy(B).multiply(qe).multiply(B.clone().invert());
   }, [f]);
   useFrame((_, dt) => {
-    if (g.current.position.lengthSq() === 0) g.current.position.copy(tp.current);
+    // jump straight to the pose on a new run / reset instead of gliding there
+    if (g.current.position.lengthSq() === 0 || g.current.position.distanceTo(tp.current) > 150) { g.current.position.copy(tp.current); g.current.quaternion.copy(tq.current); }
     g.current.position.lerp(tp.current, Math.min(1, dt * 8));
     g.current.quaternion.slerp(tq.current, Math.min(1, dt * 8));
     pos.current.copy(g.current.position);

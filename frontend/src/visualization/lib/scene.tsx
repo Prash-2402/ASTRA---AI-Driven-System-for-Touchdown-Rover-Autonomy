@@ -87,8 +87,11 @@ function InstancedRocks({ geom, mat, list, seed }: { geom: THREE.BufferGeometry;
     });
     ref.current.count = list.length;
     ref.current.instanceMatrix.needsUpdate = true;
+    // bounds must cover the placed instances, otherwise the whole group is culled whenever the
+    // origin (where the bounds were first computed) leaves the view
+    ref.current.computeBoundingSphere(); ref.current.computeBoundingBox?.();
   }, [list, seed]);
-  return <instancedMesh ref={ref} args={[geom, mat, Math.max(1, list.length)]} castShadow receiveShadow />;
+  return <instancedMesh ref={ref} args={[geom, mat, Math.max(1, list.length)]} castShadow receiveShadow frustumCulled={false} />;
 }
 
 /** Gradient sky dome (Mars: butterscotch horizon -> grey-blue zenith; Moon: black). */

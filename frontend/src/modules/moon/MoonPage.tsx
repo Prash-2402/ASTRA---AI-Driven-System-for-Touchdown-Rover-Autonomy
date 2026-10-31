@@ -67,10 +67,10 @@ export default function MoonPage({ features }: { features: LandingFeatures }) {
               <div className="eyebrow !text-[9.5px] mb-1 text-[var(--primary)]">What is happening · {live.phase}</div>{EXPLAIN[live.phase]}</div>}
           </div>
           {!features.telemetry ? null : hist.length > 1 ? <div className="grid md:grid-cols-2 gap-5">
-            <Panel eyebrow="Trajectory" title="Altitude & descent rate"><Series data={hist} lines={[{ key: "agl", name: "AGL [m]" }]} height={140} /><Series data={hist} lines={[{ key: "vz", name: "vertical speed [m/s]", color: "#1C7ED6" }, { key: "vx", name: "downrange speed [m/s]", color: "#F08C00" }]} height={140} /></Panel>
-            <Panel eyebrow="Propulsion" title="Throttle, pitch & propellant"><Series data={hist} lines={[{ key: "throttle", name: "throttle [0-1]", color: "#F08C00" }]} height={140} /><Series data={hist} lines={[{ key: "pitch", name: "pitch [deg]", color: "#7950F2" }]} height={140} /></Panel>
+            <Panel eyebrow="Trajectory" title="Altitude & descent rate"><Series data={hist} lines={[{ key: "agl", name: "AGL [m]" }]} height={140} /><Series data={hist} lines={[{ key: "vz", name: "vertical speed [m/s]", color: "#1C7ED6" }, { key: "vx", name: "downrange speed [m/s]", color: "#C77D12" }]} height={140} /></Panel>
+            <Panel eyebrow="Propulsion" title="Throttle, pitch & propellant"><Series data={hist} lines={[{ key: "throttle", name: "throttle [0-1]", color: "#C77D12" }]} height={140} /><Series data={hist} lines={[{ key: "pitch", name: "pitch [deg]", color: "#7950F2" }]} height={140} /></Panel>
             <Panel eyebrow="Plume-surface interaction" title="Regolith erosion rate"><Series data={hist} lines={[{ key: "dust", name: "dust [kg/s]", color: "#1F2937" }]} /></Panel>
-            <Panel eyebrow="Navigation" title="Navigation error (IMU + landing radar)"><Series data={hist} lines={[{ key: "nav", name: "|estimate − truth| [m]", color: "#E03131" }]} /></Panel>
+            <Panel eyebrow="Navigation" title="Navigation error (IMU + landing radar)"><Series data={hist} lines={[{ key: "nav", name: "|estimate − truth| [m]", color: "#C0392B" }]} /></Panel>
           </div> : <Empty title="Ready at high gate">Press Start to begin powered descent from high gate.</Empty>}
           <Panel eyebrow="Explainability" title="Decision audit"><DecisionLog decisions={decisions.data || []} /></Panel>
         </div>

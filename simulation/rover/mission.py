@@ -19,9 +19,9 @@ from autonomy.fault_detection.detector import (AnomalyDetector, AstraResponseSel
                                                DetectorConfig, FaultClassifier, RecoveryVerifier, Response)
 from autonomy.fault_detection.evidence import Evidence, EvidenceBuilder
 from autonomy.framework import StateObservationManager, TimestampedEstimate
-from autonomy.planning.astar import astar, path_blocked
+from autonomy.planning.astar import PlannerConfig, astar, path_blocked, path_cost
 from autonomy.planning.rover_perception import RoverPerceivedMap, cell_of, orbital_prior
-from autonomy.planning.traversability import CostWeights, build_costmap
+from autonomy.planning.traversability import HARD_PENALTY, CostWeights, build_costmap
 from autonomy.prediction.rover_energy import RouteEnergyModel
 from autonomy.safety.rover_supervisor import RoverSafetySupervisor, SafetyConfig
 from simulation.common.rng import SeedManager
@@ -33,6 +33,8 @@ from simulation.rover.urdf import RoverGeometry
 from simulation.rover.world import RoverWorld, WorldConfig
 
 CONTROL_DT = 0.1
+IMPROVE_EVERY_S = 3.0      # surface operations: look for a clearly better route this often
+PENALTY_TTL_S = 150.0      # a 'no progress' patch penalty is forgotten after this long (conditions change, the rover moved on)
 TELEMETRY_DT = 0.2
 
 
@@ -132,9 +134,33 @@ class RoverMission:
         self.ev = Evidence()
         self.state_mgr = StateObservationManager()
         self.audit = DecisionAudit("rover")
-        # surface operations keep a tighter clearance around perceived rocks (about one 1 m cell instead of two)
-        self.base_weights = CostWeights(inflation_m=0.55) if ops else CostWeights()
+        # surface operations: one-cell hard clearance around perceived rocks plus a soft halo (keeps distance when
+        # there is room, still passes gaps when there is not); the camera's 'untraversable' label only adds cost
+        # (lidar decides what is blocked); slopes up to 26 deg are drivable; the route only changes when the new
+        # one is clearly better or the old one is blocked. Benchmark missions keep the original planner.
+        self.base_weights = (CostWeights(inflation_m=1.6, sigma_inflation=0.5, inflation_rounding="round", size_aware=True,
+                                         camera_soft=True, max_slope_deg=26.0, clearance_m=1.5, w_clearance=1.5)
+                             if ops else CostWeights())
         self.weights = self.base_weights
+        # two clearance tiers: routes normally keep a comfortable margin (1 cell round small rocks, 2 round boulders);
+        # only when no such route exists does the rover take any gap it physically fits through, at half speed
+        self.planner = (PlannerConfig(path_inertia=0.9, switch_margin=0.08, min_replan_interval_s=2.0, block_confirm=1,
+                                      tight_inflation_m=0.45, tight_speed=0.5) if ops else PlannerConfig())
+        if ops:
+            cfg.safety.slow_tilt_deg = max(cfg.safety.slow_tilt_deg, 20.0)
+            cfg.safety.max_tilt_deg = max(cfg.safety.max_tilt_deg, 28.0)
+        n = self.map.obstacle.shape[0]
+        self.extra_cost = np.zeros((n, n))        # patches where the rover made no progress (stuck monitor) ...
+        self.extra_t = np.full((n, n), -1e9)      # ... and when; a penalty expires after PENALTY_TTL_S
+        self.stuck_hits = np.zeros((n, n), np.int32)
+        self.stuck_events: list[float] = []
+        self.n_stuck = 0
+        self._prog: list[tuple[float, float, float, float]] = []
+        self._path_goal = None
+        self._last_replan_t = -1e9
+        self._block_count = 0
+        self.route_switches = 0
+        self.routes_kept = 0
         self.response = Response()
         self.actuator_health_est = np.ones(6)
         self.path: dict = {"found": False, "path": [], "cells": []}
@@ -210,28 +236,67 @@ class RoverMission:
     def _dist_goal_est(self):
         return float(np.hypot(*(self.ekf.x[:2] - self.goal)))
 
-    def _plan(self, reason: str, decision_event=None) -> dict:
-        cost, hard, info = build_costmap(self.map, self.weights, self.ekf.pos_sigma(), float(np.min(self.actuator_health_est)))
+    def _costmap(self, tight: bool = False):
+        live = np.where(self.t - self.extra_t < PENALTY_TTL_S, self.extra_cost, 0.0)
+        # narrow-passage tier: any gap the 1.04 m wide rover fits through - its centre stays >= 1 m from every
+        # perceived rock cell (one-cell margin round every rock, boulders included)
+        w = (self.weights.with_(inflation_m=self.planner.tight_inflation_m)
+             if tight and self.planner.tight_inflation_m else self.weights)
+        return build_costmap(self.map, w, self.ekf.pos_sigma(), float(np.min(self.actuator_health_est)), extra=live)
+
+    def _plan(self, reason: str, decision_event=None, forced: bool = True) -> dict:
+        """forced: the goal changed or the route is blocked / missing - always take the new route. Otherwise
+        (supervisor / fault-response re-plans) keep the current route unless the new one is clearly better."""
+        pc = self.planner
+        cur = self.path if self.path.get("found") else None
+        same_goal = cur is not None and self._path_goal is not None and bool(np.allclose(self._path_goal, self.goal))
+        if not forced and same_goal and self.t - self._last_replan_t < pc.min_replan_interval_s:
+            return cur
         before = self.path.get("path", [])
-        res = astar(cost, hard, self.ekf.x[:2], self.goal)
+        remaining = list(cur["cells"][max(self.pp.idx - 1, 0):]) if (cur and same_goal) else []
+        tight = False
+        for tight in ((False, True) if pc.tight_inflation_m else (False,)):
+            cost, hard, info = self._costmap(tight)
+            keep = remaining if (cur and bool(cur.get("tight")) == tight) else []
+            res = astar(cost, hard, self.ekf.x[:2], self.goal, prefer_cells=keep or None, inertia=pc.path_inertia,
+                        stable=pc.path_inertia < 1.0, rocks=self.map.obstacle if self.ops is not None else None)
+            if res["found"]:
+                break
+        res["tight"] = bool(res["found"] and tight)
+        remaining = remaining if (cur and bool(cur.get("tight")) == res["tight"]) else []
         res["reason"] = reason
         res["t"] = round(self.t, 2)
         res["costmap"] = info
+        self._last_replan_t = self.t
+        if res["found"] and not forced and remaining and pc.switch_margin > 0 \
+                and not path_blocked(remaining, hard, 0, cell_of(*self.ekf.x[:2])):
+            cur_cost = path_cost([cell_of(*self.ekf.x[:2])] + remaining, cost)
+            if res["cost"] > (1.0 - pc.switch_margin) * cur_cost:
+                self.routes_kept += 1          # not clearly better: keep driving the route the rover is on
+                return cur
         if res["found"]:
             e = self.energy.predict(res["path"], self.map.slope(), self.map.cam_class, self.cfg.max_speed * self.response.speed_factor or self.cfg.max_speed)
             res["energy"] = e
+            if cur is not None and [tuple(c) for c in res["cells"]] != [tuple(c) for c in cur.get("cells", [])]:
+                self.route_switches += 1
             self.path = res
+            self._path_goal = self.goal.copy()
             self.pp.set_path(res["path"])
             self.no_path_since = None
         else:
             if self.no_path_since is None:
                 self.no_path_since = self.t
+            if pc.switch_margin > 0:
+                # surface operations: never keep driving a route that was just found to be blocked - stop and wait
+                # for the map to change or a stuck-patch penalty to expire
+                self.path = {"found": False, "path": [], "cells": []}
         self.replans.append(res["time_ms"])
         self.path_history.append({"t": res["t"], "reason": reason, "found": res["found"], "length": res.get("length"),
                                   "path": res["path"][::2] if res["found"] else []})
         self.path_history = self.path_history[-20:]
         self._event("replan", f"Path {'found' if res['found'] else 'NOT found'} ({reason})"
-                    + (f": {res['length']:.1f} m, {res['time_ms']:.0f} ms" if res["found"] else ""))
+                    + (f": {res['length']:.1f} m, {res['time_ms']:.0f} ms" if res["found"] else "")
+                    + (" — narrow passage, half speed" if res.get("tight") else ""))
         if decision_event is not None:
             decision_event.details["route_before"] = before[::3]
             decision_event.details["route_after"] = res["path"][::3] if res["found"] else []
@@ -406,6 +471,10 @@ class RoverMission:
             "route_energy_infeasible": route_infeasible, "wheel_capability": ev.wheel_capability,
             "position": (est["x"], est["y"])})
         speed_factor = min(speed_factor, self.safety["speed_cap"])
+        if self.path.get("tight"):
+            speed_factor = min(speed_factor, self.planner.tight_speed)
+        if self.ops is not None and getattr(self, "_in_margin", False):
+            speed_factor = min(speed_factor, 0.35)      # a rock was noticed late: crawl until outside its margin
         if self.safety["action"] == "safe_halt":
             if self.halt_since is None:
                 self.halt_since = self.t
@@ -418,15 +487,31 @@ class RoverMission:
         if self.safety["action"] == "replan" and (not self.replans or int(self.t * 10) % 20 == 0):
             replan_reason = replan_reason or ("safety supervisor: " + "; ".join(self.safety["reasons"]))
         # ---- planning ----
-        cost_hard = None
+        forced = False                    # supervisor / fault-response re-plans keep a route that is still good
         if self.path.get("found") and int(self.t * 10) % 5 == 0:
-            _, cost_hard, _ = build_costmap(self.map, self.weights, self.ekf.pos_sigma(), float(np.min(self.actuator_health_est)))
-            if path_blocked(self.path["cells"], cost_hard, max(self.pp.idx - 2, 0), cell_of(*self.ekf.x[:2])):
-                replan_reason = replan_reason or "route blocked by newly perceived hazard"
+            _, cost_hard, _ = self._costmap(tight=bool(self.path.get("tight")))
+            blocked = path_blocked(self.path["cells"], cost_hard, max(self.pp.idx - 2, 0), cell_of(*self.ekf.x[:2]))
+            self._in_margin = bool(cost_hard[cell_of(*self.ekf.x[:2])])   # inside a rock's clearance margin right now
+            if self.ops is not None and not blocked:
+                # a small rock is often seen only ~1 m ahead: the next route cells must be clear of the rock AND its
+                # margin, even inside the neighbourhood the general check skips - otherwise turn away now
+                rc = cell_of(*self.ekf.x[:2])
+                nxt = [tuple(c) for c in self.path["cells"][self.pp.idx:self.pp.idx + 3] if tuple(c) != rc]
+                blocked = any(cost_hard[c] for c in nxt) and any(
+                    self.map.obstacle[max(c[0] - 1, 0):c[0] + 2, max(c[1] - 1, 0):c[1] + 2].any() for c in nxt)
+            self._block_count = self._block_count + 1 if blocked else 0
+            if self._block_count >= self.planner.block_confirm:
+                self._block_count = 0
+                replan_reason, forced = "route blocked by newly perceived hazard", True
         if not self.path.get("found") and int(self.t * 10) % 20 == 0:
-            replan_reason = replan_reason or "retry: no path"
+            replan_reason, forced = replan_reason or "retry: no path", True
+        if (self.ops is not None and not replan_reason and self.path.get("found")
+                and self.t - self._last_replan_t >= IMPROVE_EVERY_S):
+            # the map keeps filling in as the rover drives: a gap that was unknown at planning time may now be
+            # seen to be clear - take the shorter route when it is clearly better (switch margin prevents dithering)
+            replan_reason = "periodic check: newly perceived shorter route"
         if replan_reason:
-            self._plan(replan_reason, getattr(self, "_pending_decision", None))
+            self._plan(replan_reason, getattr(self, "_pending_decision", None), forced=forced)
             self._pending_decision = None
         if self.no_path_since is not None and self.t - self.no_path_since > 30.0:
             self._halt("no traversable path for 30 s")
@@ -456,6 +541,45 @@ class RoverMission:
         self.wheel_cmd = speeds
         self.torque_cmd = torques
         self.world.set_wheels(speeds, torques * self.actuator_factor)   # true actuator capability applies in physics
+        if self.ops is not None:
+            self._stuck_monitor(hold)
+
+    # ---- stuck monitor (surface operations) ------------------------------
+    def _stuck_monitor(self, hold: bool, window_s: float = 10.0, min_progress_m: float = 0.35) -> None:
+        """The rover wants to drive a route but its position does not change: a slope it cannot climb, soft
+        sand, or a rock it is nosed up against. Make that patch expensive (blocked the second time) and re-plan
+        around it."""
+        if hold or not self.path.get("found"):
+            self._prog = []
+            return
+        x, y, psi = float(self.ekf.x[0]), float(self.ekf.x[1]), float(self.ekf.x[4])
+        self._prog.append((self.t, x, y, psi))
+        while self._prog and self.t - self._prog[0][0] > window_s:
+            self._prog.pop(0)
+        if self.t - self._prog[0][0] < window_s - 0.2:
+            return
+        if float(np.hypot(x - self._prog[0][1], y - self._prog[0][2])) >= min_progress_m:
+            return
+        turned = max(abs((q[3] - self._prog[0][3] + np.pi) % (2 * np.pi) - np.pi) for q in self._prog)
+        if turned > np.radians(25):
+            return                        # pivoting on the spot to line up with the route is progress
+        rc = cell_of(x, y)
+        cells = self.path["cells"]
+        k = min(range(len(cells)), key=lambda i: abs(cells[i][0] - rc[0]) + abs(cells[i][1] - rc[1]))
+        ahead = [tuple(c) for c in cells[k:k + 4] if tuple(c) != tuple(rc)][:3]
+        for c in ahead:
+            if self.t - self.extra_t[c] >= PENALTY_TTL_S:          # expired: start counting again
+                self.stuck_hits[c], self.extra_cost[c] = 0, 0.0
+            self.stuck_hits[c] += 1
+            self.extra_cost[c] = HARD_PENALTY if self.stuck_hits[c] >= 2 else self.extra_cost[c] + 6.0
+            self.extra_t[c] = self.t
+        self.stuck_events.append(self.t)
+        self.n_stuck += 1
+        self._prog = []
+        steep = float(self.map.slope()[rc]) > 15.0
+        self._event("stuck", f"No progress for {window_s:.0f} s at ({x:.1f}, {y:.1f}){' on a slope' if steep else ''} — "
+                             "the patch ahead is penalised and the route re-planned around it")
+        self._plan("stuck: no progress, avoiding this patch", forced=True)
 
     def _apply_response(self, resp: Response, cls, ev, est, anomaly, active):
         self.response = resp
@@ -544,6 +668,8 @@ class RoverMission:
             "heading_error_mean_rad": float(np.mean(self.head_err)) if self.head_err else None,
             "position_sigma_mean_m": float(np.mean(self.sig_hist)) if self.sig_hist else None,
             "fsm_transitions": self.fsm.transitions if self.cfg.controller == "fsm" else None,
+            "route_switches": self.route_switches, "routes_kept": self.routes_kept,
+            "stuck_events": self.n_stuck,
         }
         if self.ops is not None:
             self.result["ground_ops"] = self.ops.summary()

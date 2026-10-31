@@ -1,8 +1,15 @@
-"""A* on the 1 m grid, 8-connected. Edge cost = step length * mean(cell costs). Hard cells are impassable."""
+"""A* on the 1 m grid, 8-connected. Edge cost = step length * mean(cell costs). Hard cells are impassable.
+
+Route stability (PlannerConfig): a re-plan that is not forced (goal unchanged, current route still clear) is
+searched with a mild discount on the cells of the current route ('inertia') and is only adopted if its true,
+undiscounted cost beats the remaining current route by 'switch_margin'. Ties in the open list are broken by the
+lower heuristic and then by cell index, so identical inputs always give the identical route.
+"""
 from __future__ import annotations
 
 import heapq
 import time
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -11,22 +18,50 @@ from autonomy.planning.rover_perception import cell_of, center_of
 NB = [(1, 0, 1.0), (-1, 0, 1.0), (0, 1, 1.0), (0, -1, 1.0), (1, 1, 1.4142), (1, -1, 1.4142), (-1, 1, 1.4142), (-1, -1, 1.4142)]
 
 
-def astar(cost: np.ndarray, hard: np.ndarray, start_xy, goal_xy, allow_start_blocked: bool = True) -> dict:
+@dataclass
+class PlannerConfig:
+    path_inertia: float = 1.0          # edge-cost multiplier on cells of the current route (<1 prefers keeping it)
+    switch_margin: float = 0.0         # a non-forced re-plan switches only if >= this fraction cheaper
+    min_replan_interval_s: float = 0.0 # minimum time between non-forced re-plans
+    block_confirm: int = 1             # consecutive 'route blocked' checks (0.5 s apart) before re-planning
+    tight_inflation_m: float | None = None   # fallback tier: if no route keeps the normal clearance, allow this one ...
+    tight_speed: float = 0.5                 # ... and drive such a narrow-passage route at this fraction of cruise speed
+
+
+def path_cost(cells: list, cost: np.ndarray) -> float:
+    """True (undiscounted) cost of a cell route with the same edge model as the search."""
+    tot = 0.0
+    for a, b in zip(cells[:-1], cells[1:]):
+        tot += float(np.hypot(b[0] - a[0], b[1] - a[1])) * 0.5 * (cost[a] + cost[b])
+    return tot
+
+
+def astar(cost: np.ndarray, hard: np.ndarray, start_xy, goal_xy, allow_start_blocked: bool = True,
+          prefer_cells=None, inertia: float = 1.0, stable: bool = False,
+          rocks: np.ndarray | None = None) -> dict:
     t0 = time.perf_counter()
     M = cost.shape[0]
     s, g = cell_of(*start_xy), cell_of(*goal_xy)
     hard = hard.copy()
+    cost_true = cost
     if allow_start_blocked:
-        # the rover may currently sit inside an inflated zone; let it leave
-        hard[max(s[0] - 1, 0):s[0] + 2, max(s[1] - 1, 0):s[1] + 2] = False
+        # the rover may currently sit inside an inflated zone; let it leave - but never across a rock cell itself
+        win = (slice(max(s[0] - 1, 0), s[0] + 2), slice(max(s[1] - 1, 0), s[1] + 2))
+        hard[win] = False if rocks is None else rocks[win]
+        hard[s] = False
     hard[g] = False
-    open_ = [(0.0, 0.0, s)]
+    if prefer_cells and inertia < 1.0:
+        # mild discount on the current route: an equally good alternative never displaces it
+        cost = cost.copy()
+        pc = np.array(sorted(set(prefer_cells)))
+        cost[pc[:, 0], pc[:, 1]] *= inertia
+    open_ = [(0.0, 0.0, 0.0, s)]
     came = {s: None}
     gcost = {s: 0.0}
-    cmin = float(cost[~hard].min()) if (~hard).any() else 1.0
+    cmin = float(cost[~hard].min()) if (~hard).any() else 1.0     # admissible: includes any discount
     expanded = 0
     while open_:
-        _, gc, cur = heapq.heappop(open_)
+        _, _, gc, cur = heapq.heappop(open_)
         if cur == g:
             break
         if gc > gcost.get(cur, np.inf):
@@ -44,7 +79,9 @@ def astar(cost: np.ndarray, hard: np.ndarray, start_xy, goal_xy, allow_start_blo
                 gcost[(ni, nj)] = ng
                 came[(ni, nj)] = cur
                 h = cmin * np.hypot(g[0] - ni, g[1] - nj)
-                heapq.heappush(open_, (ng + h, ng, (ni, nj)))
+                # stable: equal f broken by lower h (rounded so float noise cannot reorder), then by cell index
+                key = (round(ng + h, 9), round(h, 9)) if stable else (ng + h, ng)
+                heapq.heappush(open_, (*key, ng, (ni, nj)))
     ms = 1000 * (time.perf_counter() - t0)
     if g not in came:
         return {"found": False, "path": [], "cost": None, "expanded": expanded, "time_ms": ms}
@@ -57,7 +94,8 @@ def astar(cost: np.ndarray, hard: np.ndarray, start_xy, goal_xy, allow_start_blo
     pts = [center_of(*c) for c in cells]
     pts[-1] = tuple(goal_xy)
     length = float(sum(np.hypot(pts[k + 1][0] - pts[k][0], pts[k + 1][1] - pts[k][1]) for k in range(len(pts) - 1)))
-    return {"found": True, "path": pts, "cells": cells, "cost": float(gcost[g]), "length": length,
+    return {"found": True, "path": pts, "cells": cells, "cost": path_cost(cells, cost_true),
+            "length": length,
             "expanded": expanded, "time_ms": ms}
 
 

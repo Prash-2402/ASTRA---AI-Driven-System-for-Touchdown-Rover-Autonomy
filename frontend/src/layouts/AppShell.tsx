@@ -33,9 +33,9 @@ export default function AppShell() {
   return (
     <div className="app-root flex min-h-screen">
       <LiveBridge />
-      <aside className={`fixed md:sticky top-0 z-40 h-screen w-[256px] shrink-0 border-r bg-white md:translate-x-0 transition-transform ${open ? "translate-x-0" : "-translate-x-full"}`}>
+      <aside className={`fixed md:sticky top-0 z-40 h-screen w-[256px] shrink-0 border-r bg-[var(--cream)] md:translate-x-0 transition-transform ${open ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="px-6 pt-7 pb-5">
-          <Link to="/" className="flex items-center gap-2.5"><svg width="26" height="26" viewBox="0 0 64 64" aria-hidden><circle cx="32" cy="32" r="20" fill="#C1683F"/><ellipse cx="32" cy="32" rx="30" ry="9" fill="none" stroke="#4C6EF5" strokeWidth="3" transform="rotate(-20 32 32)"/></svg><span className="text-[22px] font-extrabold tracking-[-0.03em] leading-none text-ink" style={{ fontFamily: "Manrope, Inter, sans-serif" }}>ASTRA</span></Link>
+          <Link to="/" className="flex items-center" aria-label="ASTRA home"><img src="/logo.png" alt="ASTRA" className="h-7 w-auto select-none" draggable={false} /></Link>
           <div className="eyebrow mt-2 !text-[9.5px]">Planetary autonomy lab</div>
         </div>
         <nav className="px-3 space-y-0.5 overflow-y-auto scroll-thin" style={{ maxHeight: "calc(100vh - 175px)" }}>
@@ -57,9 +57,9 @@ export default function AppShell() {
       </aside>
       {open && <div className="fixed inset-0 z-30 bg-black/20 md:hidden" onClick={() => setOpen(false)} />}
       <div className="flex-1 min-w-0">
-        <div className="md:hidden sticky top-0 z-20 flex items-center justify-between px-4 py-3 border-b bg-white">
+        <div className="md:hidden sticky top-0 z-20 flex items-center justify-between px-4 py-3 border-b bg-[var(--cream)]">
           <button className="btn btn-ghost !px-3" onClick={() => setOpen(true)} aria-label="Open navigation">☰</button>
-          <span className="h-display text-2xl">ASTRA</span><span className="w-10" />
+          <img src="/logo.png" alt="ASTRA" className="h-6 w-auto" /><span className="w-10" />
         </div>
         <main key={loc.pathname} className="px-4 md:px-9 py-7 max-w-[1680px] mx-auto">
           <Suspense fallback={<div className="eyebrow">Loading…</div>}><Outlet /></Suspense>

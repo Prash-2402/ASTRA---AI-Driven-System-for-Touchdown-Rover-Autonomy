@@ -63,12 +63,13 @@ function OverlayCells({ t, grid, kind, ground }: { t: any; grid: any; kind: Over
     const m = new THREE.Matrix4(), c = new THREE.Color();
     let n = 0;
     const src: number[][] = kind === "cost" ? grid.cost : grid.slope;
-    let maxCost = 1; if (kind === "cost") src.forEach((r) => r.forEach((v) => { if (v > maxCost) maxCost = v; }));
     for (let i = 0; i < 60; i++) for (let j = 0; j < 60; j++) {
       if (!grid.seen[i][j] && kind === "slope") continue;
       const v = src[i][j]; const x = -30 + i + 0.5, y = -30 + j + 0.5;
       m.makeTranslation(x, ground(x, y) + 0.07, -y); ref.current.setMatrixAt(n, m);
-      if (kind === "cost") { if (v < 0) c.set("#e63946"); else ramp((v - 1) / Math.max(maxCost - 1, 1e-6), c); }
+      // red is reserved for BLOCKED cells; drivable ground shades green -> amber on a fixed scale (cost 1 .. 7+),
+      // so one expensive patch elsewhere cannot make ordinary ground look alarming
+      if (kind === "cost") { if (v < 0) c.set("#e63946"); else ramp(Math.min((v - 1) / 6, 1) * 0.5, c); }
       else ramp(v / 25, c);
       ref.current.setColorAt(n, c); n++;
     }
@@ -76,7 +77,7 @@ function OverlayCells({ t, grid, kind, ground }: { t: any; grid: any; kind: Over
     ref.current.instanceMatrix.needsUpdate = true;
     if (ref.current.instanceColor) ref.current.instanceColor.needsUpdate = true;
   }, [grid, kind, ground]);
-  return <instancedMesh ref={ref} args={[undefined, undefined, 3600]}><boxGeometry args={[0.96, 0.02, 0.96]} /><meshBasicMaterial transparent opacity={0.5} depthWrite={false} /></instancedMesh>;
+  return <instancedMesh ref={ref} args={[undefined, undefined, 3600]} frustumCulled={false}><boxGeometry args={[0.96, 0.02, 0.96]} /><meshBasicMaterial transparent opacity={0.5} depthWrite={false} /></instancedMesh>;
 }
 
 function quatFromRPY(r: number, p: number, y: number) {
@@ -92,7 +93,8 @@ function TraverseRover({ snap, labels, roverPos }: { snap: RoverSnapshot; labels
   const tp = useRef(new THREE.Vector3()), tq = useRef(new THREE.Quaternion());
   useEffect(() => { const p = f.truth.position; tp.current.set(p[0], p[2], -p[1]); tq.current.copy(quatFromRPY(f.truth.rpy[0], f.truth.rpy[1], f.truth.rpy[2])); }, [f]);
   useFrame((_, dt) => {
-    if (g.current.position.lengthSq() === 0) g.current.position.copy(tp.current);
+    // jump straight to the pose on a new run / reset instead of gliding there
+    if (g.current.position.lengthSq() === 0 || g.current.position.distanceTo(tp.current) > 3) { g.current.position.copy(tp.current); g.current.quaternion.copy(tq.current); }
     g.current.position.lerp(tp.current, Math.min(1, dt * 8)); g.current.quaternion.slerp(tq.current, Math.min(1, dt * 8));
     roverPos.current.copy(g.current.position);
   });

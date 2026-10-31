@@ -1,32 +1,33 @@
-/* ASTRA application palette — light & modern.
-   Cool off-white canvas, white cards, soft indigo accent for interaction, terracotta for Mars / hazard cues.
+/* ASTRA application palette — deep burgundy, off-white, calm gray.
+   Warm off-white canvas, ivory cards, deep burgundy for interaction / active state, calm warm grays for text.
    (Token names kept from the first design system so every component re-themes consistently.) */
 :root {
-  --background: #F5F7FB;
-  --background-secondary: #EEF1F7;
-  --surface: #FFFFFF;
-  --surface-secondary: #F7F8FC;
-  --primary: #4C6EF5;          /* indigo: actions, active state */
-  --primary-dark: #3B5BDB;
-  --primary-light: #DBE4FF;
-  --sage: #EDF2FF;             /* selected fills */
-  --sage-soft: #F4F6FC;        /* subtle fills / hover */
-  --cream: #FFFFFF;            /* sidebar */
-  --ivory: #F8FAFD;            /* inset wells, inputs */
-  --ink: #111827;              /* primary text (17:1 on white) */
-  --ink-secondary: #4B5563;    /* secondary text (7.5:1) */
-  --muted: #6B7280;            /* labels (4.8:1) */
-  --border: rgba(17,24,39,.08);
-  --border-strong: rgba(17,24,39,.16);
-  --success: #12B886;
-  --warning: #F08C00;
-  --danger: #E03131;
-  --info: #1C7ED6;
-  --copper: #D9643A;
+  --background: #F7F4EF;
+  --background-secondary: #EFEBE5;
+  --surface: #FFFDFA;
+  --surface-secondary: #F9F6F2;
+  --primary: #7A1F35;          /* deep burgundy: actions, active state */
+  --primary-dark: #5C1527;
+  --primary-light: #EEDCE0;
+  --sage: #F4E8EA;             /* selected fills */
+  --sage-soft: #F3F0EC;        /* subtle fills / hover */
+  --cream: #FFFDFA;            /* sidebar */
+  --ivory: #FAF8F5;            /* inset wells, inputs */
+  --ink: #26221F;              /* primary text */
+  --ink-secondary: #57524E;    /* secondary text (calm gray) */
+  --muted: #7D7772;            /* labels (calm gray) */
+  --border: rgba(38,34,31,.09);
+  --border-strong: rgba(38,34,31,.17);
+  --success: #2F8F6A;
+  --warning: #C77D12;
+  --danger: #C0392B;
+  --info: #4F6D8A;
+  --copper: #B5562F;
+  --primary-rgb: 122,31,53;
   --radius-sm: 10px;
   --radius-md: 14px;
   --radius-lg: 18px;
   --radius-xl: 24px;
-  --shadow-soft: 0 1px 2px rgba(16,24,40,.04), 0 4px 16px rgba(16,24,40,.05);
-  --shadow-card: 0 2px 4px rgba(16,24,40,.05), 0 12px 32px rgba(16,24,40,.08);
+  --shadow-soft: 0 1px 2px rgba(38,34,31,.04), 0 4px 16px rgba(38,34,31,.05);
+  --shadow-card: 0 2px 4px rgba(38,34,31,.05), 0 12px 32px rgba(38,34,31,.08);
 }

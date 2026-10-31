@@ -1,0 +1,67 @@
+{
+  "status": "completed",
+  "started_at": "2026-10-30T16:10:07.137379+00:00",
+  "timesteps_target": 2000000,
+  "n_envs": 6,
+  "seed": 0,
+  "method": "PPO warm-started by behaviour cloning of cascade-PID demonstrations, then PPO fine-tuning",
+  "bc_episodes": 150,
+  "hyperparameters": {
+    "learning_rate": 0.0001,
+    "n_steps": 1024,
+    "batch_size": 512,
+    "n_epochs": 10,
+    "gamma": 0.995,
+    "gae_lambda": 0.95,
+    "clip_range": 0.1,
+    "ent_coef": 0.0,
+    "target_kl": 0.03,
+    "policy_kwargs": {
+      "net_arch": [
+        128,
+        128
+      ],
+      "log_std_init": -1.6
+    }
+  },
+  "environment_version": "v3 (per-worker episode seeds, graded terminal reward, target jumps, wind randomisation, fast mode)",
+  "versions": {
+    "python": "3.12.10",
+    "torch": "2.14.0+cpu",
+    "stable_baselines3": "2.9.2",
+    "numpy": "2.4.6"
+  },
+  "bc": {
+    "type": "bc",
+    "seconds": 318.8,
+    "demo_success_rate": 0.9533333333333334,
+    "bc_epochs": 40,
+    "bc_samples": 89722,
+    "bc_action_mse": 0.0017538940727527246,
+    "bc_value_mse": 104.49074332386328,
+    "episodes": 6,
+    "mean_return": 83.31582733868188,
+    "success_rate": 1.0,
+    "mean_landing_error_m": 1.9080700331203453,
+    "mean_touchdown_speed": 0.44366557504187765,
+    "mean_fuel_kg": 195.11988654321374,
+    "mean_length": 660.5,
+    "outcomes": {
+      "landed": 6
+    }
+  },
+  "finished_at": "2026-10-30T18:11:04.581696+00:00",
+  "timesteps_done": 2002944,
+  "final_evaluation": {
+    "episodes": 12,
+    "mean_return": 67.97061784088173,
+    "success_rate": 1.0,
+    "mean_landing_error_m": 64.2279405451829,
+    "mean_touchdown_speed": 1.263148231686541,
+    "mean_fuel_kg": 139.87342986396445,
+    "mean_length": 423.3333333333333,
+    "outcomes": {
+      "landed": 12
+    }
+  }
+}
