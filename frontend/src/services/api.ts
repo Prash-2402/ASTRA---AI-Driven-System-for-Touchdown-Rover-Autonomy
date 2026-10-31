@@ -2,7 +2,7 @@
 const DEFAULT_BASE = (import.meta as any).env?.VITE_API_BASE || `${location.protocol}//${location.hostname}:8000`;
 
 export function apiBase(): string {
-  try { return (localStorage.getItem("astra.apiBase") || DEFAULT_BASE).replace(/\/+$/, ""); } catch { return DEFAULT_BASE.replace(/\/+$/, ""); }
+  try { return (localStorage.getItem("astra.apiBase") || DEFAULT_BASE).trim().replace(/\/+$/, ""); } catch { return DEFAULT_BASE.trim().replace(/\/+$/, ""); }
 }
 export function setApiBase(url: string) { try { localStorage.setItem("astra.apiBase", url); } catch { /* storage unavailable */ } }
 
