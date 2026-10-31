@@ -6,6 +6,7 @@ import json
 import numpy as np
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.api import routes_platform, routes_runs, routes_touchdown, websocket
@@ -39,6 +40,7 @@ def create_app() -> FastAPI:
                   description="AI-Driven System for Touchdown & Rover Autonomy",
                   openapi_tags=TAGS_METADATA)
     app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins + ["*"], allow_methods=["*"], allow_headers=["*"])
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
     for r in (routes_platform.router, routes_touchdown.router, routes_runs.router, websocket.router):
         app.include_router(r)
     try:
@@ -53,6 +55,17 @@ def create_app() -> FastAPI:
         app.include_router(routes_experiments.router)
     except ImportError:
         pass
+    @app.get("/")
+    def root():
+        return {
+            "name": "ASTRA API",
+            "version": VERSION,
+            "status": "running",
+            "docs": "/docs",
+            "frontend": "http://localhost:5173",
+            "platform_status": "/api/platform/status",
+        }
+
     @app.on_event("startup")
     def _mark_orphaned_batches():
         """A batch marked 'running' cannot be alive when the API process (its parent) has just started:
