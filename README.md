@@ -1,8 +1,12 @@
 # ASTRA — AI-Driven System for Touchdown & Rover Autonomy
+
 <img width="1897" height="1078" alt="image" src="https://github.com/user-attachments/assets/2621b346-c29a-4f59-b363-7984f1c119e3" />
 
 
 ASTRA is a research-grade autonomy platform for planetary landing and surface mobility, designed to study how intelligent decision-making can remain safe, interpretable, and statistically defensible under uncertainty and injected faults. The repository combines high-fidelity simulation, state estimation, planning, control, fault detection, and experimental evaluation into a single framework for autonomous planetary systems.
+
+<img width="1471" height="757" alt="image" src="https://github.com/user-attachments/assets/796a9117-c4c8-49a1-8306-2be0f4bb91bb" />
+
 
 The system is organized around two independent physics domains and one shared mission-intelligence layer:
 
